@@ -1,0 +1,40 @@
+{
+    "server": {
+        "ip": "hc.t60.top",
+        "tcp_port": 5000,
+        "http_port": 5600,
+        "timeout": 5000,
+        "retry_count": 3
+    },
+    "device": {
+        "brand": "Samsung",
+        "model": "SM-G950F",
+        "device": "dreamlte",
+        "product": "dreamltexx",
+        "manufacturer": "samsung",
+        "release": "8.0.0",
+        "sdk_int": 26
+    },
+    "network": {
+        "connect_timeout": 5000,
+        "read_timeout": 5000,
+        "buffer_size": 131072,
+        "max_redirects": 5
+    },
+    "security": {
+        "rsa_public_key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAiGcQ9YZC70OTUFdZtTfsqXgTwwK90bwU0p5sE9yi/kfebKs2JAi8JSeBSKJkaZ3T4+Q9oCWTnLrpkgqMCkNq/3GY2aTpyp/c4Tgl2ckf1Chfoy27fLcDJWjK/zBUzgLTjV0L0eOG7L7Gr+cJgcYrUPv7CXch773JKcNK0ce/uZD2+GChM+zOycaVbeJj1+WYGo0Dq8aTYqiJh99tKEKyGT7O3JKbyEb2jyeQO/TCCsAoVOulQcuGXUGageBrJnnod3J0QUdF30SMOLtlKk4tDjb+ptv7rk58EIYFcyzwAufiucQ8Vj0FgGm92/fZ9r29dnTDI+VTeZ7JGo+kiBIAkwIDAQAB",
+        "app_key": "WrefHO4WuLpoopOW2bg09SSaVEj8xpBh9IZ8fpXppPjUWlYYIeT82sB+UwpmHmJLxwLFXMu1thxBdi0FfxiD0grclLmmPFJvfV0Z/FBOKUqSkF884Ynh6uQiFX4XSkPL1y7SaEKpc8XBDJos+eCfDFa1L1aI/DlTAd6Rnhih9CPDHML4/pSa88BLqkVfh4t5f0DdiLS5N5D6VIvBUV48r2nW78Z14M5bw2/HW/NwwlUHTkZV4pkv+hLrwCVCf0onSHdNe7gP2oD0JC/6zNcKEbZ1aqvdNKRwol4bwk1gytrz6X6SHDIFmBwYFLY9UvoqqKrXDNe9L8RtKavYzTL4yg=="
+    },
+    "cache": {
+        "enabled": true,
+        "max_size": 1000,
+        "expiration": 3600
+    },
+    "logging": {
+        "enabled": true,
+        "level": "INFO",
+        "file": "logs/app.log",
+        "max_size": 10485760,
+        "backup_count": 5
+    }
+}

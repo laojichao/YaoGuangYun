@@ -1,0 +1,371 @@
+package com.yaoguangyun.config;
+
+import com.google.gson.Gson;
+import com.google.gson.GsonBuilder;
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
+import com.google.gson.reflect.TypeToken;
+import com.yaoguangyun.util.GsonUtils;
+
+import java.io.*;
+import java.lang.reflect.Type;
+import java.nio.charset.StandardCharsets;
+import java.util.HashMap;
+import java.util.Map;
+
+/**
+ * JSON配置文件解析器
+ * 
+ * 用于读取和解析JSON格式的配置文件
+ * 支持嵌套配置、默认值、配置更新等功能
+ */
+public class JsonConfigParser {
+    
+    /** 配置文件路径 */
+    private final String configFilePath;
+    
+    /** 配置数据 */
+    private JsonObject configData;
+    
+    /** Gson实例 */
+    private final Gson gson;
+    
+    /**
+     * 构造函数
+     * 
+     * @param configFilePath 配置文件路径
+     */
+    public JsonConfigParser(String configFilePath) {
+        this.configFilePath = configFilePath;
+        this.gson = new GsonBuilder()
+                .setPrettyPrinting()
+                .disableHtmlEscaping()
+                .create();
+        this.configData = new JsonObject();
+    }
+    
+    /**
+     * 加载配置文件
+     * 
+     * @return 是否加载成功
+     */
+    public boolean load() {
+        File file = new File(configFilePath);
+        if (!file.exists()) {
+            System.err.println("配置文件不存在: " + configFilePath);
+            return false;
+        }
+        
+        try (InputStream inputStream = new FileInputStream(file);
+             InputStreamReader reader = new InputStreamReader(inputStream, StandardCharsets.UTF_8);
+             BufferedReader bufferedReader = new BufferedReader(reader)) {
+            
+            StringBuilder content = new StringBuilder();
+            String line;
+            while ((line = bufferedReader.readLine()) != null) {
+                content.append(line).append("\n");
+            }
+            
+            String jsonContent = content.toString().trim();
+            if (!jsonContent.isEmpty()) {
+                configData = JsonParser.parseString(jsonContent).getAsJsonObject();
+            }
+            
+            return true;
+            
+        } catch (IOException e) {
+            System.err.println("读取配置文件失败: " + e.getMessage());
+            return false;
+        }
+    }
+    
+    /**
+     * 保存配置到文件
+     * 
+     * @return 是否保存成功
+     */
+    public boolean save() {
+        File file = new File(configFilePath);
+        
+        // 确保目录存在
+        File parentDir = file.getParentFile();
+        if (parentDir != null && !parentDir.exists()) {
+            parentDir.mkdirs();
+        }
+        
+        try (OutputStream outputStream = new FileOutputStream(file);
+             OutputStreamWriter writer = new OutputStreamWriter(outputStream, StandardCharsets.UTF_8);
+             BufferedWriter bufferedWriter = new BufferedWriter(writer)) {
+            
+            String jsonContent = gson.toJson(configData);
+            bufferedWriter.write(jsonContent);
+            bufferedWriter.flush();
+            
+            return true;
+            
+        } catch (IOException e) {
+            System.err.println("保存配置文件失败: " + e.getMessage());
+            return false;
+        }
+    }
+    
+    /**
+     * 获取字符串配置值
+     * 
+     * @param key 配置键
+     * @param defaultValue 默认值
+     * @return 配置值
+     */
+    public String getString(String key, String defaultValue) {
+        return GsonUtils.getString(configData, key);
+    }
+    
+    /**
+     * 获取整数配置值
+     * 
+     * @param key 配置键
+     * @param defaultValue 默认值
+     * @return 配置值
+     */
+    public int getInt(String key, int defaultValue) {
+        if (!GsonUtils.has(configData, key)) {
+            return defaultValue;
+        }
+        return GsonUtils.getInt(configData, key);
+    }
+    
+    /**
+     * 获取长整数配置值
+     * 
+     * @param key 配置键
+     * @param defaultValue 默认值
+     * @return 配置值
+     */
+    public long getLong(String key, long defaultValue) {
+        if (!GsonUtils.has(configData, key)) {
+            return defaultValue;
+        }
+        return GsonUtils.getLong(configData, key);
+    }
+    
+    /**
+     * 获取双精度浮点配置值
+     * 
+     * @param key 配置键
+     * @param defaultValue 默认值
+     * @return 配置值
+     */
+    public double getDouble(String key, double defaultValue) {
+        if (!GsonUtils.has(configData, key)) {
+            return defaultValue;
+        }
+        return GsonUtils.getDouble(configData, key);
+    }
+    
+    /**
+     * 获取布尔配置值
+     * 
+     * @param key 配置键
+     * @param defaultValue 默认值
+     * @return 配置值
+     */
+    public boolean getBoolean(String key, boolean defaultValue) {
+        if (!GsonUtils.has(configData, key)) {
+            return defaultValue;
+        }
+        return GsonUtils.getBoolean(configData, key);
+    }
+    
+    /**
+     * 获取嵌套配置对象
+     * 
+     * @param key 配置键
+     * @return 配置对象
+     */
+    public JsonObject getJsonObject(String key) {
+        if (!GsonUtils.has(configData, key)) {
+            return null;
+        }
+        try {
+            return configData.getAsJsonObject(key);
+        } catch (Exception e) {
+            return null;
+        }
+    }
+    
+    /**
+     * 设置字符串配置值
+     * 
+     * @param key 配置键
+     * @param value 配置值
+     */
+    public void setString(String key, String value) {
+        GsonUtils.putString(configData, key, value);
+    }
+    
+    /**
+     * 设置整数配置值
+     * 
+     * @param key 配置键
+     * @param value 配置值
+     */
+    public void setInt(String key, int value) {
+        GsonUtils.putInt(configData, key, value);
+    }
+    
+    /**
+     * 设置长整数配置值
+     * 
+     * @param key 配置键
+     * @param value 配置值
+     */
+    public void setLong(String key, long value) {
+        GsonUtils.putLong(configData, key, value);
+    }
+    
+    /**
+     * 设置双精度浮点配置值
+     * 
+     * @param key 配置键
+     * @param value 配置值
+     */
+    public void setDouble(String key, double value) {
+        GsonUtils.putDouble(configData, key, value);
+    }
+    
+    /**
+     * 设置布尔配置值
+     * 
+     * @param key 配置键
+     * @param value 配置值
+     */
+    public void setBoolean(String key, boolean value) {
+        GsonUtils.putBoolean(configData, key, value);
+    }
+    
+    /**
+     * 检查配置键是否存在
+     * 
+     * @param key 配置键
+     * @return 是否存在
+     */
+    public boolean hasKey(String key) {
+        return GsonUtils.has(configData, key);
+    }
+    
+    /**
+     * 删除配置键
+     * 
+     * @param key 配置键
+     */
+    public void removeKey(String key) {
+        configData.remove(key);
+    }
+    
+    /**
+     * 获取所有配置键
+     * 
+     * @return 配置键集合
+     */
+    public java.util.Set<String> getKeys() {
+        return configData.keySet();
+    }
+    
+    /**
+     * 获取配置数据映射
+     * 
+     * @return 配置数据映射
+     */
+    public Map<String, Object> toMap() {
+        Type type = new TypeToken<Map<String, Object>>(){}.getType();
+        return gson.fromJson(configData, type);
+    }
+    
+    /**
+     * 从Map加载配置
+     * 
+     * @param map 配置数据映射
+     */
+    public void fromMap(Map<String, Object> map) {
+        if (map == null) {
+            return;
+        }
+        
+        configData = gson.toJsonTree(map).getAsJsonObject();
+    }
+    
+    /**
+     * 合并配置
+     * 
+     * @param otherConfig 其他配置
+     */
+    public void merge(JsonConfigParser otherConfig) {
+        if (otherConfig == null) {
+            return;
+        }
+        
+        JsonObject otherData = otherConfig.configData;
+        for (String key : otherData.keySet()) {
+            configData.add(key, otherData.get(key));
+        }
+    }
+    
+    /**
+     * 获取配置文件路径
+     * 
+     * @return 配置文件路径
+     */
+    public String getConfigFilePath() {
+        return configFilePath;
+    }
+    
+    /**
+     * 获取配置数据JSON字符串
+     * 
+     * @return JSON字符串
+     */
+    public String toJson() {
+        return gson.toJson(configData);
+    }
+    
+    /**
+     * 获取格式化的配置数据JSON字符串
+     * 
+     * @return 格式化JSON字符串
+     */
+    public String toPrettyJson() {
+        return gson.toJson(configData);
+    }
+    
+    /**
+     * 从JSON字符串加载配置
+     * 
+     * @param json JSON字符串
+     * @return 是否加载成功
+     */
+    public boolean fromJson(String json) {
+        if (json == null || json.isEmpty()) {
+            return false;
+        }
+        
+        try {
+            configData = JsonParser.parseString(json).getAsJsonObject();
+            return true;
+        } catch (Exception e) {
+            System.err.println("解析JSON失败: " + e.getMessage());
+            return false;
+        }
+    }
+    
+    /**
+     * 创建默认配置文件
+     * 
+     * @param defaultConfig 默认配置
+     * @return 是否创建成功
+     */
+    public static boolean createDefaultConfig(String configFilePath, JsonObject defaultConfig) {
+        JsonConfigParser parser = new JsonConfigParser(configFilePath);
+        parser.configData = defaultConfig;
+        return parser.save();
+    }
+}
