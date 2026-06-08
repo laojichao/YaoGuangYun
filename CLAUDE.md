@@ -27,6 +27,15 @@ mvn package
 
 Java target: 1.8. Profiles available for Java 11 and 17 (`-P java11`, `-P java17`).
 
+### Configuration
+
+项目配置在根目录 `config.json`，包含以下节:
+- `server` — 服务器地址、端口、超时
+- `device` — 设备信息模拟参数
+- `network` — TCP/HTTP 连接参数
+- `security` — RSA 密钥配置
+- `cache` / `logging` — 缓存和日志设置
+
 ## Architecture
 
 All source is under `src/main/java/com/yaoguangyun/`. Entry point is `Main.java` which dispatches based on CLI args.
@@ -66,8 +75,8 @@ All source is under `src/main/java/com/yaoguangyun/`. Entry point is `Main.java`
 
 ### Key Dependencies
 
-- **Gson 2.10.1** — JSON serialization
-- **Hutool 5.8.22** — Utility toolkit (core, http, json, crypto, socket)
+- **Gson 2.10.1** — JSON serialization (local jar in `lib/`)
+- **Hutool 5.8.22** — Utility toolkit (core, http, json, crypto, socket). See `HUTOOL_USAGE.md` for usage guide.
 - **JUnit 4.13.2** — Testing (test scope)
 
 Maven repos include Aliyun mirror as primary, Maven Central as fallback.
