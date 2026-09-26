@@ -75,6 +75,10 @@ public class RequestDataMap {
      * @return RequestDataMap实例
      */
     public static RequestDataMap copyFrom(byte[] data, int offset, int length) {
+        if (offset < 0 || length < 0 || offset + length > data.length) {
+            throw new IndexOutOfBoundsException(
+                "offset=" + offset + ", length=" + length + ", data.length=" + data.length);
+        }
         byte[] newData = new byte[length];
         System.arraycopy(data, offset, newData, 0, length);
         return new RequestDataMap(newData);
@@ -110,6 +114,9 @@ public class RequestDataMap {
      * @return 字节值
      */
     public byte byteAt(int index) {
+        if (index < 0 || index >= data.length) {
+            throw new IndexOutOfBoundsException("index=" + index + ", size=" + data.length);
+        }
         return data[index];
     }
     
@@ -162,7 +169,8 @@ public class RequestDataMap {
      * @return 位置索引，未找到返回-1
      */
     public int indexOf(byte[] target, int start) {
-        for (int i = start; i <= data.length - target.length; i++) {
+        int from = Math.max(0, start);
+        for (int i = from; i <= data.length - target.length; i++) {
             boolean found = true;
             for (int j = 0; j < target.length; j++) {
                 if (data[i + j] != target[j]) {
@@ -193,6 +201,10 @@ public class RequestDataMap {
      * @return 子数据
      */
     public RequestDataMap substring(int beginIndex, int endIndex) {
+        if (beginIndex < 0 || endIndex > data.length || beginIndex > endIndex) {
+            throw new IndexOutOfBoundsException(
+                "beginIndex=" + beginIndex + ", endIndex=" + endIndex + ", size=" + data.length);
+        }
         int length = endIndex - beginIndex;
         return copyFrom(data, beginIndex, length);
     }

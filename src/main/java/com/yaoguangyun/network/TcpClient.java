@@ -1,10 +1,5 @@
 package com.yaoguangyun.network;
 
-import com.yaoguangyun.proto.BasicDeviceInfo;
-import com.yaoguangyun.proto.CardOperationType;
-import com.yaoguangyun.proto.CardProtobufMessage;
-import com.yaoguangyun.proto.ProtobufMessage;
-import com.yaoguangyun.proto.RequestDataMap;
 import com.yaoguangyun.util.RsaEncryptUtils;
 
 import java.io.ByteArrayOutputStream;
@@ -13,11 +8,8 @@ import java.io.DataOutputStream;
 import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.net.Socket;
-import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
-import java.util.HashMap;
-import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.zip.GZIPOutputStream;
@@ -49,8 +41,12 @@ public class TcpClient {
     private static final int HTTP_PORT = ServerConfig.getHttpPort();
     
     // ==================== 线程池配置 ====================
-    /** 线程池，用于并发处理TCP请求 */
-    public static final ExecutorService THREAD_POOL = Executors.newFixedThreadPool(16);
+    /** 线程池，用于并发处理TCP请求（守护线程，避免阻塞JVM正常退出） */
+    public static final ExecutorService THREAD_POOL = Executors.newFixedThreadPool(16, r -> {
+        Thread thread = new Thread(r, "yaoguangyun-tcp-pool");
+        thread.setDaemon(true);
+        return thread;
+    });
     
     // ==================== 超时设置 ====================
     /** 连接超时时间（毫秒） */
@@ -59,6 +55,10 @@ public class TcpClient {
     private static final int SO_TIMEOUT = 5000;
     /** 缓冲区大小（字节） */
     private static final int BUFFER_SIZE = 131072;
+    /** 响应最大长度（字节），防止异常声明长度导致内存溢出 */
+    private static final int MAX_RESPONSE_SIZE = 64 * 1024 * 1024;
+    /** 协议魔数 */
+    private static final byte[] MAGIC = "Epic".getBytes(StandardCharsets.UTF_8);
     
     /**
      * 发送TCP消息
@@ -102,7 +102,7 @@ public class TcpClient {
             
             try {
                 // 发送魔数
-                dataOutputStream.write("Epic".getBytes(StandardCharsets.UTF_8));
+                dataOutputStream.write(MAGIC);
                 
                 // 发送消息类型
                 TcpMessageType msgType = TcpMessageType.TCP_MESSAGE_TYPE_VERIFY;
@@ -115,31 +115,27 @@ public class TcpClient {
                 dataOutputStream.flush();
                 
                 // 读取响应
-                byte[] magicBuffer = new byte["Epic".getBytes(StandardCharsets.UTF_8).length];
+                byte[] magicBuffer = new byte[MAGIC.length];
                 dataInputStream.readFully(magicBuffer);
-                
-                if (!Arrays.equals("Epic".getBytes(StandardCharsets.UTF_8), magicBuffer)) {
+
+                if (!Arrays.equals(MAGIC, magicBuffer)) {
                     throw new IOException("Magic Fail");
                 }
-                
+
                 if (TcpMessageType.getType(dataInputStream.readInt()) != msgType) {
                     throw new IOException("Message Type Fail");
                 }
-                
-                // 读取响应数据
+
+                // 读取响应数据（按声明长度精确读取，避免越界或混入未填充数据）
                 int responseLength = dataInputStream.readInt();
-                ByteBuffer responseBuffer = ByteBuffer.allocate(responseLength);
-                byte[] readBuffer = new byte[1024];
-                
-                int bytesRead;
-                while ((bytesRead = dataInputStream.read(readBuffer)) != -1) {
-                    responseBuffer.put(readBuffer, 0, bytesRead);
+                if (responseLength < 0 || responseLength > MAX_RESPONSE_SIZE) {
+                    throw new IOException("Invalid response length: " + responseLength);
                 }
-                
-                responseBuffer.flip();
-                
+                byte[] responseDataBytes = new byte[responseLength];
+                dataInputStream.readFully(responseDataBytes);
+
                 // RSA解密响应数据（模拟原始应用的实现）
-                String responseData = new String(responseBuffer.array(), StandardCharsets.UTF_8);
+                String responseData = new String(responseDataBytes, StandardCharsets.UTF_8);
                 try {
                     // 尝试RSA解密（如果服务器使用RSA加密响应）
                     String decryptedResponse = RsaEncryptUtils.decryptWithPublicKey(

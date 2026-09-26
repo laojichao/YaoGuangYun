@@ -2,6 +2,7 @@ package com.yaoguangyun.config;
 
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
+import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import com.google.gson.reflect.TypeToken;
@@ -117,7 +118,8 @@ public class JsonConfigParser {
      * @return 配置值
      */
     public String getString(String key, String defaultValue) {
-        return GsonUtils.getString(configData, key);
+        String value = GsonUtils.getString(resolveParent(key), leafKey(key));
+        return value != null ? value : defaultValue;
     }
     
     /**
@@ -128,10 +130,9 @@ public class JsonConfigParser {
      * @return 配置值
      */
     public int getInt(String key, int defaultValue) {
-        if (!GsonUtils.has(configData, key)) {
-            return defaultValue;
-        }
-        return GsonUtils.getInt(configData, key);
+        JsonObject parent = resolveParent(key);
+        String leaf = leafKey(key);
+        return (parent != null && GsonUtils.has(parent, leaf)) ? GsonUtils.getInt(parent, leaf) : defaultValue;
     }
     
     /**
@@ -142,10 +143,9 @@ public class JsonConfigParser {
      * @return 配置值
      */
     public long getLong(String key, long defaultValue) {
-        if (!GsonUtils.has(configData, key)) {
-            return defaultValue;
-        }
-        return GsonUtils.getLong(configData, key);
+        JsonObject parent = resolveParent(key);
+        String leaf = leafKey(key);
+        return (parent != null && GsonUtils.has(parent, leaf)) ? GsonUtils.getLong(parent, leaf) : defaultValue;
     }
     
     /**
@@ -156,10 +156,9 @@ public class JsonConfigParser {
      * @return 配置值
      */
     public double getDouble(String key, double defaultValue) {
-        if (!GsonUtils.has(configData, key)) {
-            return defaultValue;
-        }
-        return GsonUtils.getDouble(configData, key);
+        JsonObject parent = resolveParent(key);
+        String leaf = leafKey(key);
+        return (parent != null && GsonUtils.has(parent, leaf)) ? GsonUtils.getDouble(parent, leaf) : defaultValue;
     }
     
     /**
@@ -170,10 +169,9 @@ public class JsonConfigParser {
      * @return 配置值
      */
     public boolean getBoolean(String key, boolean defaultValue) {
-        if (!GsonUtils.has(configData, key)) {
-            return defaultValue;
-        }
-        return GsonUtils.getBoolean(configData, key);
+        JsonObject parent = resolveParent(key);
+        String leaf = leafKey(key);
+        return (parent != null && GsonUtils.has(parent, leaf)) ? GsonUtils.getBoolean(parent, leaf) : defaultValue;
     }
     
     /**
@@ -183,14 +181,8 @@ public class JsonConfigParser {
      * @return 配置对象
      */
     public JsonObject getJsonObject(String key) {
-        if (!GsonUtils.has(configData, key)) {
-            return null;
-        }
-        try {
-            return configData.getAsJsonObject(key);
-        } catch (Exception e) {
-            return null;
-        }
+        JsonElement element = resolvePath(key);
+        return (element != null && element.isJsonObject()) ? element.getAsJsonObject() : null;
     }
     
     /**
@@ -200,7 +192,7 @@ public class JsonConfigParser {
      * @param value 配置值
      */
     public void setString(String key, String value) {
-        GsonUtils.putString(configData, key, value);
+        GsonUtils.putString(ensureParent(key), leafKey(key), value);
     }
     
     /**
@@ -210,7 +202,7 @@ public class JsonConfigParser {
      * @param value 配置值
      */
     public void setInt(String key, int value) {
-        GsonUtils.putInt(configData, key, value);
+        GsonUtils.putInt(ensureParent(key), leafKey(key), value);
     }
     
     /**
@@ -220,7 +212,7 @@ public class JsonConfigParser {
      * @param value 配置值
      */
     public void setLong(String key, long value) {
-        GsonUtils.putLong(configData, key, value);
+        GsonUtils.putLong(ensureParent(key), leafKey(key), value);
     }
     
     /**
@@ -230,7 +222,7 @@ public class JsonConfigParser {
      * @param value 配置值
      */
     public void setDouble(String key, double value) {
-        GsonUtils.putDouble(configData, key, value);
+        GsonUtils.putDouble(ensureParent(key), leafKey(key), value);
     }
     
     /**
@@ -240,7 +232,7 @@ public class JsonConfigParser {
      * @param value 配置值
      */
     public void setBoolean(String key, boolean value) {
-        GsonUtils.putBoolean(configData, key, value);
+        GsonUtils.putBoolean(ensureParent(key), leafKey(key), value);
     }
     
     /**
@@ -250,7 +242,8 @@ public class JsonConfigParser {
      * @return 是否存在
      */
     public boolean hasKey(String key) {
-        return GsonUtils.has(configData, key);
+        JsonElement element = resolvePath(key);
+        return element != null && !element.isJsonNull();
     }
     
     /**
@@ -259,7 +252,80 @@ public class JsonConfigParser {
      * @param key 配置键
      */
     public void removeKey(String key) {
-        configData.remove(key);
+        JsonObject parent = resolveParent(key);
+        if (parent != null) {
+            parent.remove(leafKey(key));
+        }
+    }
+
+    // ==================== 路径解析辅助方法 ====================
+
+    /**
+     * 解析点分路径（如 "server.ip"），返回键所在的对象节点
+     *
+     * @param key 配置键，可用"."分隔嵌套层级
+     * @return 键所在的对象节点，路径不存在时返回null
+     */
+    private JsonObject resolveParent(String key) {
+        if (key == null || key.isEmpty()) {
+            return null;
+        }
+        String[] parts = key.split("\\.");
+        JsonObject current = configData;
+        for (int i = 0; i < parts.length - 1; i++) {
+            if (!current.has(parts[i]) || !current.get(parts[i]).isJsonObject()) {
+                return null;
+            }
+            current = current.getAsJsonObject(parts[i]);
+        }
+        return current;
+    }
+
+    /**
+     * 解析点分路径，返回对应的JsonElement
+     *
+     * @param key 配置键，可用"."分隔嵌套层级
+     * @return 对应的JsonElement，不存在时返回null
+     */
+    private JsonElement resolvePath(String key) {
+        JsonObject parent = resolveParent(key);
+        return parent == null ? null : parent.get(leafKey(key));
+    }
+
+    /**
+     * 获取（或创建）键所在的对象节点，支持点分路径
+     *
+     * @param key 配置键，可用"."分隔嵌套层级
+     * @return 键所在的对象节点
+     */
+    private JsonObject ensureParent(String key) {
+        String[] parts = key.split("\\.");
+        JsonObject current = configData;
+        for (int i = 0; i < parts.length - 1; i++) {
+            JsonElement next = current.get(parts[i]);
+            if (next == null || !next.isJsonObject()) {
+                JsonObject child = new JsonObject();
+                current.add(parts[i], child);
+                current = child;
+            } else {
+                current = next.getAsJsonObject();
+            }
+        }
+        return current;
+    }
+
+    /**
+     * 获取键的叶子名称（点分路径的最后一段）
+     *
+     * @param key 配置键
+     * @return 最后一段键名
+     */
+    private static String leafKey(String key) {
+        if (key == null || key.isEmpty()) {
+            return key;
+        }
+        int index = key.lastIndexOf('.');
+        return index >= 0 ? key.substring(index + 1) : key;
     }
     
     /**

@@ -140,10 +140,48 @@ public class SimpleHttpServer {
             if (!first) {
                 sb.append(",");
             }
-            sb.append("\"").append(entry.getKey()).append("\":\"").append(entry.getValue()).append("\"");
+            sb.append("\"").append(escapeJson(entry.getKey())).append("\":\"")
+              .append(escapeJson(entry.getValue())).append("\"");
             first = false;
         }
         sb.append("}");
+        return sb.toString();
+    }
+
+    /**
+     * 转义JSON字符串中的特殊字符
+     */
+    private static String escapeJson(String value) {
+        if (value == null) {
+            return "";
+        }
+        StringBuilder sb = new StringBuilder(value.length());
+        for (int i = 0; i < value.length(); i++) {
+            char c = value.charAt(i);
+            switch (c) {
+                case '\"':
+                    sb.append("\\\"");
+                    break;
+                case '\\':
+                    sb.append("\\\\");
+                    break;
+                case '\n':
+                    sb.append("\\n");
+                    break;
+                case '\r':
+                    sb.append("\\r");
+                    break;
+                case '\t':
+                    sb.append("\\t");
+                    break;
+                default:
+                    if (c < 0x20) {
+                        sb.append(String.format("\\u%04x", (int) c));
+                    } else {
+                        sb.append(c);
+                    }
+            }
+        }
         return sb.toString();
     }
     

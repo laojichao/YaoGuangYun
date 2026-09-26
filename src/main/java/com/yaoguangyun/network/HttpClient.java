@@ -2,6 +2,7 @@ package com.yaoguangyun.network;
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.util.HashMap;
@@ -70,7 +71,7 @@ public class HttpClient {
      * @throws IOException 网络异常
      */
     public InputStream get(String url) throws IOException {
-        return executeRequest(url, 0, null);
+        return executeRequest(url, 0);
     }
     
     /**
@@ -86,7 +87,10 @@ public class HttpClient {
         connection.setRequestMethod("POST");
         
         if (data != null && data.length > 0) {
-            connection.getOutputStream().write(data);
+            // 使用try-with-resources确保请求体流关闭并被刷出
+            try (OutputStream outputStream = connection.getOutputStream()) {
+                outputStream.write(data);
+            }
         }
         
         return handleResponse(connection, url, 0);
@@ -96,11 +100,10 @@ public class HttpClient {
      * 执行请求
      * @param url 请求URL
      * @param redirectCount 重定向计数
-     * @param previousUrl 上一个URL
      * @return 响应输入流
      * @throws IOException
      */
-    private InputStream executeRequest(String url, int redirectCount, URL previousUrl) throws IOException {
+    private InputStream executeRequest(String url, int redirectCount) throws IOException {
         if (redirectCount >= MAX_REDIRECTS) {
             throw new IOException("Too many redirects");
         }
@@ -172,9 +175,10 @@ public class HttpClient {
             URL redirectUrl = new URL(new URL(url), location);
             connection.disconnect();
             
-            return executeRequest(redirectUrl.toString(), redirectCount + 1, new URL(url));
+            return executeRequest(redirectUrl.toString(), redirectCount + 1);
         } else {
-            // 错误响应
+            // 错误响应，主动断开连接释放资源
+            connection.disconnect();
             throw new IOException("HTTP error: " + responseCode);
         }
     }

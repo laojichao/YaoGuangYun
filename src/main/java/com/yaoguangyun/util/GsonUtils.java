@@ -221,7 +221,7 @@ public class GsonUtils {
         }
         try {
             return element.getAsInt();
-        } catch (NumberFormatException e) {
+        } catch (Exception e) {
             return 0;
         }
     }
@@ -242,7 +242,7 @@ public class GsonUtils {
         }
         try {
             return element.getAsLong();
-        } catch (NumberFormatException e) {
+        } catch (Exception e) {
             return 0L;
         }
     }
@@ -280,7 +280,7 @@ public class GsonUtils {
         }
         try {
             return element.getAsDouble();
-        } catch (NumberFormatException e) {
+        } catch (Exception e) {
             return 0.0;
         }
     }

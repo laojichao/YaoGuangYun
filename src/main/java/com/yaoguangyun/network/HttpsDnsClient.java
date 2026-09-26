@@ -7,6 +7,7 @@ import java.io.InputStream;
 import java.net.URL;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
+import java.util.Arrays;
 import javax.net.ssl.HttpsURLConnection;
 
 /**
@@ -84,18 +85,25 @@ public class HttpsDnsClient {
                 return null;
             }
             
-            // 读取响应
+            // 读取响应（循环读取，确保数据完整）
             InputStream inputStream = connection.getInputStream();
             byte[] response = new byte[contentLength];
-            int bytesRead = inputStream.read(response);
+            int offset = 0;
+            while (offset < contentLength) {
+                int bytesRead = inputStream.read(response, offset, contentLength - offset);
+                if (bytesRead == -1) {
+                    break;
+                }
+                offset += bytesRead;
+            }
             inputStream.close();
-            
-            if (bytesRead <= 0) {
+
+            if (offset <= 0) {
                 return null;
             }
-            
+
             // 解析响应
-            return parseDnsResponse(response);
+            return parseDnsResponse(offset == contentLength ? response : Arrays.copyOf(response, offset));
             
         } finally {
             connection.disconnect();
@@ -123,6 +131,10 @@ public class HttpsDnsClient {
         // 查询域名
         String[] parts = hostname.split("\\.");
         for (String part : parts) {
+            // DNS标签长度限制为1~63字节，防止长度字节溢出
+            if (part.isEmpty() || part.length() > 63) {
+                throw new IllegalArgumentException("Invalid DNS label: " + part);
+            }
             buffer.put((byte) part.length());
             buffer.put(part.getBytes(StandardCharsets.US_ASCII));
         }

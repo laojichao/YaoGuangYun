@@ -230,10 +230,10 @@ public class DeviceInfoManager {
     
     /**
      * 获取设备信息映射
-     * @return 设备信息映射
+     * @return 设备信息映射的副本（修改副本不影响内部状态）
      */
     public Map<String, String> getDeviceInfoMap() {
-        return deviceInfoMap;
+        return new HashMap<>(deviceInfoMap);
     }
     
     /**
