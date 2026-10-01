@@ -5,9 +5,14 @@ import com.google.gson.GsonBuilder;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
-import com.google.gson.JsonSyntaxException;
+import com.google.gson.JsonPrimitive;
+import com.google.gson.JsonParseException;
 import com.google.gson.reflect.TypeToken;
+import com.google.gson.stream.JsonReader;
+import com.google.gson.stream.JsonToken;
 
+import java.io.IOException;
+import java.io.StringReader;
 import java.lang.reflect.Type;
 import java.util.List;
 import java.util.Map;
@@ -39,7 +44,7 @@ public class GsonUtils {
             .setPrettyPrinting()
             .disableHtmlEscaping()
             .create();
-    
+
     /**
      * 获取默认Gson实例
      * @return Gson实例
@@ -87,7 +92,7 @@ public class GsonUtils {
         }
         try {
             return GSON.fromJson(json, clazz);
-        } catch (JsonSyntaxException e) {
+        } catch (JsonParseException e) {
             System.err.println("JSON解析失败: " + e.getMessage());
             return null;
         }
@@ -106,7 +111,7 @@ public class GsonUtils {
         }
         try {
             return GSON.fromJson(json, type);
-        } catch (JsonSyntaxException e) {
+        } catch (JsonParseException e) {
             System.err.println("JSON解析失败: " + e.getMessage());
             return null;
         }
@@ -126,7 +131,7 @@ public class GsonUtils {
         try {
             Type type = TypeToken.getParameterized(List.class, clazz).getType();
             return GSON.fromJson(json, type);
-        } catch (JsonSyntaxException e) {
+        } catch (JsonParseException e) {
             System.err.println("JSON解析失败: " + e.getMessage());
             return null;
         }
@@ -144,7 +149,7 @@ public class GsonUtils {
         try {
             Type type = new TypeToken<Map<String, Object>>(){}.getType();
             return GSON.fromJson(json, type);
-        } catch (JsonSyntaxException e) {
+        } catch (JsonParseException e) {
             System.err.println("JSON解析失败: " + e.getMessage());
             return null;
         }
@@ -192,14 +197,14 @@ public class GsonUtils {
      * 从JsonObject获取字符串值
      * @param jsonObject JsonObject
      * @param key 键
-     * @return 字符串值，如果不存在返回null
+     * @return 字符串值；键不存在、值为 null 或不是基本类型时返回 null
      */
     public static String getString(JsonObject jsonObject, String key) {
         if (jsonObject == null || !jsonObject.has(key)) {
             return null;
         }
         JsonElement element = jsonObject.get(key);
-        if (element.isJsonNull()) {
+        if (element.isJsonNull() || !element.isJsonPrimitive()) {
             return null;
         }
         return element.getAsString();
@@ -249,6 +254,10 @@ public class GsonUtils {
     
     /**
      * 从JsonObject获取布尔值
+     *
+     * <p>与 getInt/getLong/getDouble 保持同一契约：键不存在、值为 null 或不是基本类型时返回 false，
+     * 不会抛 UnsupportedOperationException。</p>
+     *
      * @param jsonObject JsonObject
      * @param key 键
      * @return 布尔值，如果不存在返回false
@@ -258,10 +267,15 @@ public class GsonUtils {
             return false;
         }
         JsonElement element = jsonObject.get(key);
-        if (element.isJsonNull()) {
+        if (element.isJsonNull() || !element.isJsonPrimitive()) {
             return false;
         }
-        return element.getAsBoolean();
+        JsonPrimitive primitive = element.getAsJsonPrimitive();
+        if (primitive.isBoolean()) {
+            return primitive.getAsBoolean();
+        }
+        // 字符串形式：只有 "true"（忽略大小写）为真
+        return "true".equalsIgnoreCase(primitive.getAsString().trim());
     }
     
     /**
@@ -415,19 +429,34 @@ public class GsonUtils {
     }
     
     /**
-     * 验证JSON字符串是否有效
+     * 验证JSON字符串是否有效（严格模式）
+     *
+     * <p>不能使用 {@code JsonParser.parseString} 或 {@code Gson.fromJson(JsonReader, ...)}：
+     * 二者都会在内部强制把 JsonReader 设为宽松模式，从而接受 {@code {key: value}}、
+     * 单引号字符串、尾随逗号等非标准 JSON。这里直接使用 {@code Streams.parse}，
+     * 它不会修改 reader 的宽松设置，因此配合 {@code setLenient(false)} 即可严格校验。</p>
+     *
      * @param json JSON字符串
-     * @return 是否有效
+     * @return 是否为合法 JSON
      */
     public static boolean isValidJson(String json) {
         if (json == null || json.isEmpty()) {
             return false;
         }
+        JsonReader reader = new JsonReader(new StringReader(json));
+        reader.setLenient(false);
         try {
-            JsonParser.parseString(json);
-            return true;
+            com.google.gson.internal.Streams.parse(reader);
+            // 必须完整消费输入，拒绝 "{} 多余内容" 这类尾部垃圾
+            return reader.peek() == JsonToken.END_DOCUMENT;
         } catch (Exception e) {
             return false;
+        } finally {
+            try {
+                reader.close();
+            } catch (IOException ignored) {
+                // 关闭 StringReader 不会失败，忽略
+            }
         }
     }
     

@@ -49,10 +49,10 @@ public class ProtobufMessage {
     
     /**
      * 获取数据类型
-     * @return CardType枚举
+     * @return CardType枚举（非 null）
      */
     public CardType getDataType() {
-        return dataType;
+        return dataType != null ? dataType : CardType.Soft;
     }
     
     /**
@@ -68,15 +68,21 @@ public class ProtobufMessage {
      * @return 数据类型数值
      */
     public int getDataTypeValue() {
-        return dataType.getNumber();
+        return getDataType().getNumber();
     }
     
     /**
      * 设置数据类型的数值
+     *
      * @param value 数据类型数值
+     * @throws IllegalArgumentException 数值不对应任何已知数据类型
      */
     public void setDataTypeValue(int value) {
-        this.dataType = CardType.valueOf(value);
+        CardType parsed = CardType.forNumber(value);
+        if (parsed == null) {
+            throw new IllegalArgumentException("未知的 CardType 数值: " + value);
+        }
+        this.dataType = parsed;
     }
     
     /**
@@ -84,7 +90,7 @@ public class ProtobufMessage {
      * @return DnsMessage对象，如果不是软件类型则返回null
      */
     public DnsMessage getSoft() {
-        return dataType == CardType.Soft ? soft : null;
+        return getDataType() == CardType.Soft ? soft : null;
     }
     
     /**
@@ -103,7 +109,7 @@ public class ProtobufMessage {
      * @return 是否有软件消息
      */
     public boolean hasSoft() {
-        return dataType == CardType.Soft && soft != null;
+        return getDataType() == CardType.Soft && soft != null;
     }
     
     /**
@@ -111,7 +117,7 @@ public class ProtobufMessage {
      * @return CardProtobufMessage对象，如果不是卡片类型则返回null
      */
     public CardProtobufMessage getCard() {
-        return dataType == CardType.Card ? card : null;
+        return getDataType() == CardType.Card ? card : null;
     }
     
     /**
@@ -130,7 +136,7 @@ public class ProtobufMessage {
      * @return 是否有卡片消息
      */
     public boolean hasCard() {
-        return dataType == CardType.Card && card != null;
+        return getDataType() == CardType.Card && card != null;
     }
     
     @Override
@@ -144,12 +150,13 @@ public class ProtobufMessage {
         
         ProtobufMessage that = (ProtobufMessage) obj;
         
-        if (dataType != that.dataType) {
+        CardType thisType = getDataType();
+        if (thisType != that.getDataType()) {
             return false;
         }
-        if (dataType == CardType.Soft) {
+        if (thisType == CardType.Soft) {
             return soft != null ? soft.equals(that.soft) : that.soft == null;
-        } else if (dataType == CardType.Card) {
+        } else if (thisType == CardType.Card) {
             return card != null ? card.equals(that.card) : that.card == null;
         }
         return true;
@@ -157,10 +164,11 @@ public class ProtobufMessage {
     
     @Override
     public int hashCode() {
-        int result = dataType.hashCode();
-        if (dataType == CardType.Soft) {
+        CardType thisType = getDataType();
+        int result = thisType.hashCode();
+        if (thisType == CardType.Soft) {
             result = 31 * result + (soft != null ? soft.hashCode() : 0);
-        } else if (dataType == CardType.Card) {
+        } else if (thisType == CardType.Card) {
             result = 31 * result + (card != null ? card.hashCode() : 0);
         }
         return result;
@@ -168,12 +176,13 @@ public class ProtobufMessage {
     
     @Override
     public String toString() {
-        if (dataType == CardType.Soft) {
+        CardType thisType = getDataType();
+        if (thisType == CardType.Soft) {
             return "ProtobufMessage{dataType=Soft, soft=" + soft + '}';
-        } else if (dataType == CardType.Card) {
+        } else if (thisType == CardType.Card) {
             return "ProtobufMessage{dataType=Card, card=" + card + '}';
         } else {
-            return "ProtobufMessage{dataType=" + dataType + '}';
+            return "ProtobufMessage{dataType=" + thisType + '}';
         }
     }
 }

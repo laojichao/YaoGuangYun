@@ -30,5 +30,9 @@ bin/
 ### VS Code ###
 .vscode/
 
+### AI 编码助手（工具生成，不应入库）###
+.codeartsdoer/
+.claude/
+
 ### Mac OS ###
 .DS_Store

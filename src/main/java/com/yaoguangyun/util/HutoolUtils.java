@@ -5,7 +5,6 @@ import cn.hutool.core.collection.CollUtil;
 import cn.hutool.core.date.DateUtil;
 import cn.hutool.core.io.FileUtil;
 import cn.hutool.core.lang.UUID;
-import cn.hutool.core.map.MapUtil;
 import cn.hutool.core.util.CharsetUtil;
 import cn.hutool.core.util.HexUtil;
 import cn.hutool.core.util.IdUtil;
@@ -15,7 +14,6 @@ import cn.hutool.crypto.SecureUtil;
 import cn.hutool.crypto.asymmetric.KeyType;
 import cn.hutool.crypto.asymmetric.RSA;
 import cn.hutool.crypto.digest.DigestUtil;
-import cn.hutool.http.Header;
 import cn.hutool.http.HttpRequest;
 import cn.hutool.http.HttpResponse;
 import cn.hutool.http.HttpUtil;
@@ -38,7 +36,6 @@ import java.util.Map;
  * 2. HTTP客户端 (hutool-http)
  * 3. JSON处理 (hutool-json)
  * 4. 加密解密 (hutool-crypto)
- * 5. 网络工具 (hutool-socket)
  */
 public class HutoolUtils {
     
@@ -255,10 +252,14 @@ public class HutoolUtils {
     
     /**
      * 生成RSA密钥对
+     *
+     * <p>Hutool 的 {@code SecureUtil.generateKeyPair("RSA")} 默认只有 1024 位，
+     * 与本项目其余部分的 2048 位策略不一致，因此这里显式指定 2048 位。</p>
+     *
      * @return 密钥对
      */
     public static KeyPair generateRSAKeyPair() {
-        return SecureUtil.generateKeyPair("RSA");
+        return SecureUtil.generateKeyPair("RSA", 2048);
     }
     
     /**
@@ -284,14 +285,17 @@ public class HutoolUtils {
     }
     
     // ==================== HTTP工具 ====================
-    
+
+    /** HTTP 默认超时（毫秒）。Hutool 全局默认是「不超时」，不显式设置会永久阻塞。 */
+    private static final int DEFAULT_HTTP_TIMEOUT = 5000;
+
     /**
      * 发送GET请求
      * @param url URL
      * @return 响应内容
      */
     public static String httpGet(String url) {
-        return HttpUtil.get(url);
+        return HttpUtil.createGet(url).timeout(DEFAULT_HTTP_TIMEOUT).execute().body();
     }
     
     /**
@@ -301,7 +305,7 @@ public class HutoolUtils {
      * @return 响应内容
      */
     public static String httpPost(String url, String data) {
-        return HttpUtil.post(url, data);
+        return HttpUtil.createPost(url).timeout(DEFAULT_HTTP_TIMEOUT).body(data).execute().body();
     }
     
     /**
@@ -311,20 +315,34 @@ public class HutoolUtils {
      * @return 响应内容
      */
     public static String httpPostForm(String url, Map<String, Object> params) {
-        return HttpUtil.post(url, params);
+        return HttpUtil.createPost(url).timeout(DEFAULT_HTTP_TIMEOUT).form(params).execute().body();
     }
     
     /**
      * 发送自定义HTTP请求
+     *
      * @param url URL
-     * @param method 请求方法
+     * @param method 请求方法（大小写不敏感）
      * @param headers 请求头
      * @param body 请求体
      * @return 响应对象
+     * @throws IllegalArgumentException method 不是合法的 HTTP 方法
      */
     public static HttpResponse httpRequest(String url, String method, Map<String, String> headers, String body) {
+        if (method == null || method.trim().isEmpty()) {
+            throw new IllegalArgumentException("请求方法不能为空");
+        }
+        cn.hutool.http.Method parsedMethod;
+        try {
+            parsedMethod = cn.hutool.http.Method.valueOf(method.trim().toUpperCase(java.util.Locale.ROOT));
+        } catch (IllegalArgumentException e) {
+            throw new IllegalArgumentException("不支持的HTTP方法: " + method
+                    + "（可选值: GET, POST, PUT, DELETE, HEAD, PATCH, OPTIONS, TRACE）", e);
+        }
+
         HttpRequest request = HttpRequest.of(url)
-            .method(cn.hutool.http.Method.valueOf(method));
+            .method(parsedMethod)
+            .timeout(DEFAULT_HTTP_TIMEOUT);
         
         // 设置请求头
         if (headers != null) {

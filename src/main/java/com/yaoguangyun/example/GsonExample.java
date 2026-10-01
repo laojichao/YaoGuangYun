@@ -284,8 +284,8 @@ public class GsonExample {
         String validJson = "{\"key\":\"value\"}";
         String invalidJson = "{key: value}";
         
-        System.out.println("有效JSON验证: " + GsonUtils.isValidJson(validJson));
-        System.out.println("无效JSON验证: " + GsonUtils.isValidJson(invalidJson));
+        System.out.println("有效JSON验证(应为true): " + GsonUtils.isValidJson(validJson));
+        System.out.println("无效JSON验证(应为false): " + GsonUtils.isValidJson(invalidJson));
         
         // JSON格式化
         String compactJson = "{\"name\":\"test\",\"value\":123}";

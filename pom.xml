@@ -18,6 +18,12 @@
         <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
         <maven.compiler.source>1.8</maven.compiler.source>
         <maven.compiler.target>1.8</maven.compiler.target>
+        <!--
+          真正约束「可用 API 集合」的是 release，而不是 source/target：它让 javac 按目标版本的 API 编译，
+          从而在构建期就拦住误用高版本 API 的代码（例如 InputStream.readAllBytes() 属于 Java 9+）。
+          各 profile 通过覆盖本属性切换目标版本。
+        -->
+        <maven.compiler.release>8</maven.compiler.release>
         <gson.version>2.10.1</gson.version>
         <hutool.version>5.8.22</hutool.version>
         <junit.version>4.13.2</junit.version>
@@ -59,13 +65,6 @@
             <version>${hutool.version}</version>
         </dependency>
 
-        <!-- Hutool网络工具 -->
-        <dependency>
-            <groupId>cn.hutool</groupId>
-            <artifactId>hutool-socket</artifactId>
-            <version>${hutool.version}</version>
-        </dependency>
-
         <!-- JUnit测试依赖 -->
         <dependency>
             <groupId>junit</groupId>
@@ -85,6 +84,17 @@
                     <include>**/*.properties</include>
                     <include>**/*.xml</include>
                     <include>**/*.json</include>
+                </includes>
+            </resource>
+            <!--
+              把仓库根目录的 config.json 一并打进 jar 根目录：
+              它仍是唯一的一份配置源文件，但打包后即使不在项目根目录运行
+              也能通过 classpath 回退读到（见 JsonConfigParser.load）。
+            -->
+            <resource>
+                <directory>${project.basedir}</directory>
+                <includes>
+                    <include>config.json</include>
                 </includes>
             </resource>
         </resources>
@@ -109,8 +119,11 @@
                 <artifactId>maven-compiler-plugin</artifactId>
                 <version>3.11.0</version>
                 <configuration>
-                    <source>1.8</source>
-                    <target>1.8</target>
+                    <!--
+                      不要在这里硬编码 source/target：那会覆盖 profile 设置的 maven.compiler.* 属性，
+                      导致 -P java11 / -P java17 完全失效。统一由属性驱动（release 优先于 source/target）。
+                    -->
+                    <release>${maven.compiler.release}</release>
                     <encoding>UTF-8</encoding>
                     <showDeprecation>true</showDeprecation>
                     <showWarnings>true</showWarnings>
@@ -148,12 +161,15 @@
                 <executions>
                     <execution>
                         <id>copy-dependencies</id>
-                        <phase>package</phase>
+                        <!-- 必须在 jar 打包之前：放到 prepare-package，避免依赖 jar 缺失时构件已生成 -->
+                        <phase>prepare-package</phase>
                         <goals>
                             <goal>copy-dependencies</goal>
                         </goals>
                         <configuration>
                             <outputDirectory>${project.build.directory}/lib</outputDirectory>
+                            <!-- 只拷贝运行时依赖，避免把 junit/hamcrest 等 test 作用域 jar 一起分发 -->
+                            <includeScope>runtime</includeScope>
                         </configuration>
                     </execution>
                 </executions>
@@ -240,29 +256,20 @@
     <!-- 配置管理 -->
     <profiles>
         <profile>
-            <id>default</id>
-            <activation>
-                <activeByDefault>true</activeByDefault>
-            </activation>
-            <properties>
-                <maven.compiler.source>1.8</maven.compiler.source>
-                <maven.compiler.target>1.8</maven.compiler.target>
-            </properties>
-        </profile>
-        
-        <profile>
             <id>java11</id>
             <properties>
                 <maven.compiler.source>11</maven.compiler.source>
                 <maven.compiler.target>11</maven.compiler.target>
+                <maven.compiler.release>11</maven.compiler.release>
             </properties>
         </profile>
-        
+
         <profile>
             <id>java17</id>
             <properties>
                 <maven.compiler.source>17</maven.compiler.source>
                 <maven.compiler.target>17</maven.compiler.target>
+                <maven.compiler.release>17</maven.compiler.release>
             </properties>
         </profile>
     </profiles>

@@ -63,10 +63,14 @@ public class BasicDeviceInfo {
     
     /**
      * 获取语言环境
+     *
+     * <p>Gson 反序列化绕过构造函数与 setter，JSON 中的显式 null 会让字段变成 null；
+     * 这里统一归一为 ""，保证调用方不会拿到 null。</p>
+     *
      * @return 语言环境代码
      */
     public String getLocale() {
-        return locale;
+        return locale != null ? locale : "";
     }
     
     /**
@@ -82,7 +86,7 @@ public class BasicDeviceInfo {
      * @return Android ID
      */
     public String getAndroidId() {
-        return androidId;
+        return androidId != null ? androidId : "";
     }
     
     /**
@@ -114,7 +118,7 @@ public class BasicDeviceInfo {
      * @return 设备型号字符串，格式: "品牌(型号)"
      */
     public String getStatusMachine() {
-        return statusMachine;
+        return statusMachine != null ? statusMachine : "";
     }
     
     /**
@@ -191,28 +195,29 @@ public class BasicDeviceInfo {
         }
         
         BasicDeviceInfo that = (BasicDeviceInfo) obj;
-        
+
         if (version != that.version) {
             return false;
         }
         if (time != that.time) {
             return false;
         }
-        if (!locale.equals(that.locale)) {
+        // 使用 getter（已做 null 归一），避免 Gson 反序列化产生的 null 字段导致 NPE
+        if (!getLocale().equals(that.getLocale())) {
             return false;
         }
-        if (!androidId.equals(that.androidId)) {
+        if (!getAndroidId().equals(that.getAndroidId())) {
             return false;
         }
-        return statusMachine.equals(that.statusMachine);
+        return getStatusMachine().equals(that.getStatusMachine());
     }
-    
+
     @Override
     public int hashCode() {
-        int result = locale.hashCode();
-        result = 31 * result + androidId.hashCode();
+        int result = getLocale().hashCode();
+        result = 31 * result + getAndroidId().hashCode();
         result = 31 * result + version;
-        result = 31 * result + statusMachine.hashCode();
+        result = 31 * result + getStatusMachine().hashCode();
         result = 31 * result + (int) (time ^ (time >>> 32));
         return result;
     }

@@ -11,7 +11,6 @@ import com.yaoguangyun.proto.CardProtobufMessage;
 import com.yaoguangyun.util.GsonUtils;
 
 import java.lang.reflect.Type;
-import java.util.HashMap;
 import java.util.Map;
 
 /**
@@ -41,57 +40,70 @@ public class JsonDataProcessor {
      */
     public static String buildVerifyRequest(DeviceInfo deviceInfo, CardOperationType operationType, Map<String, String> data) {
         // 创建基本设备信息
-        BasicDeviceInfo basicInfo = new BasicDeviceInfo();
-        basicInfo.setLocale("zh");
-        basicInfo.setAndroidId(deviceInfo.getAndroidId());
-        basicInfo.setVersion(1);
-        basicInfo.setStatusMachine(deviceInfo.getBrand() + "(" + deviceInfo.getModel() + ")");
-        basicInfo.setTime(System.currentTimeMillis());
-        
+        BasicDeviceInfo basicInfo = buildBasicDeviceInfo(deviceInfo);
+
         // 创建卡片消息
         CardProtobufMessage cardMessage = new CardProtobufMessage();
         cardMessage.setBasic(basicInfo);
         cardMessage.setOp(operationType);
-        
+
         // 添加数据
         if (data != null) {
             for (Map.Entry<String, String> entry : data.entrySet()) {
                 cardMessage.putData(entry.getKey(), entry.getValue());
             }
         }
-        
+
         // 添加设备信息
         addDeviceInfoToCard(cardMessage, deviceInfo);
-        
+
         // 序列化为JSON
         return GSON.toJson(cardMessage);
     }
-    
+
     /**
      * 构建心跳请求JSON
-     * 
-     * @param deviceInfo 设备信息
+     *
+     * <p>注意：{@link CardOperationType} 没有独立的「心跳」取值，心跳与验证共用
+     * {@link CardOperationType#Verify}，两者的区别仅在于心跳不携带业务数据。
+     * 若服务端需要区分心跳，应先在协议枚举中补充对应取值。</p>
+     *
+     * @param deviceInfo 设备信息，可为 null
      * @return JSON字符串
      */
     public static String buildHeartbeatRequest(DeviceInfo deviceInfo) {
         // 创建基本设备信息
-        BasicDeviceInfo basicInfo = new BasicDeviceInfo();
-        basicInfo.setLocale("zh");
-        basicInfo.setAndroidId(deviceInfo.getAndroidId());
-        basicInfo.setVersion(1);
-        basicInfo.setStatusMachine(deviceInfo.getBrand() + "(" + deviceInfo.getModel() + ")");
-        basicInfo.setTime(System.currentTimeMillis());
-        
+        BasicDeviceInfo basicInfo = buildBasicDeviceInfo(deviceInfo);
+
         // 创建卡片消息
         CardProtobufMessage cardMessage = new CardProtobufMessage();
         cardMessage.setBasic(basicInfo);
         cardMessage.setOp(CardOperationType.Verify);
-        
+
         // 添加设备信息
         addDeviceInfoToCard(cardMessage, deviceInfo);
-        
+
         // 序列化为JSON
         return GSON.toJson(cardMessage);
+    }
+
+    /**
+     * 构建基本设备信息，对 null 设备信息保持宽容（与 addDeviceInfoToCard 的处理一致）
+     *
+     * @param deviceInfo 设备信息，可为 null
+     * @return BasicDeviceInfo 实例（字段非 null）
+     */
+    private static BasicDeviceInfo buildBasicDeviceInfo(DeviceInfo deviceInfo) {
+        BasicDeviceInfo basicInfo = new BasicDeviceInfo();
+        basicInfo.setLocale("zh");
+        basicInfo.setVersion(1);
+        basicInfo.setTime(System.currentTimeMillis());
+
+        if (deviceInfo != null) {
+            basicInfo.setAndroidId(deviceInfo.getAndroidId());
+            basicInfo.setStatusMachine(deviceInfo.getBrand() + "(" + deviceInfo.getModel() + ")");
+        }
+        return basicInfo;
     }
     
     /**
@@ -109,7 +121,8 @@ public class JsonDataProcessor {
             Type type = new TypeToken<Map<String, Object>>(){}.getType();
             return GSON.fromJson(jsonResponse, type);
         } catch (Exception e) {
-            System.err.println("解析服务器响应失败: " + e.getMessage());
+            // 保留异常对象，避免只留下 message 而丢失栈与根因
+            System.err.println("解析服务器响应失败: " + e);
             return null;
         }
     }
@@ -128,7 +141,7 @@ public class JsonDataProcessor {
         try {
             return GSON.fromJson(json, DeviceInfo.class);
         } catch (Exception e) {
-            System.err.println("解析设备信息失败: " + e.getMessage());
+            System.err.println("解析设备信息失败: " + e);
             return null;
         }
     }
@@ -272,8 +285,8 @@ public class JsonDataProcessor {
             
             return GSON.toJson(obj1);
         } catch (Exception e) {
-            System.err.println("合并JSON失败: " + e.getMessage());
-            return json1;
+            System.err.println("合并JSON失败: " + e);
+            return json1 != null ? json1 : json2;
         }
     }
     
@@ -291,7 +304,7 @@ public class JsonDataProcessor {
                 return jsonObject.get(fieldName).getAsString();
             }
         } catch (Exception e) {
-            System.err.println("提取字段失败: " + e.getMessage());
+            System.err.println("提取字段失败: " + e);
         }
         return null;
     }

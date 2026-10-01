@@ -1,6 +1,7 @@
 package com.yaoguangyun.util;
 
 import java.nio.charset.StandardCharsets;
+import java.security.SecureRandom;
 import java.util.Base64;
 
 /**
@@ -22,6 +23,9 @@ import java.util.Base64;
  * - 屏幕适配计算
  */
 public class AppUtils {
+    
+    /** 安全随机数源（SecureRandom 线程安全，可安全共享） */
+    private static final SecureRandom SECURE_RANDOM = new SecureRandom();
     
     /**
      * 将字节数组转换为十六进制字符串
@@ -48,17 +52,29 @@ public class AppUtils {
      * 
      * @param hex 十六进制字符串
      * @return 字节数组
-     * @throws IllegalArgumentException 如果字符串包含无效的十六进制字符
+     * @throws IllegalArgumentException 字符串为 null、长度为奇数，或包含无效的十六进制字符
      */
     public static byte[] hexToBytes(String hex) {
+        if (hex == null) {
+            throw new IllegalArgumentException("十六进制字符串不能为 null");
+        }
         int len = hex.length();
         if (len % 2 != 0) {
             throw new IllegalArgumentException("十六进制字符串长度必须为偶数: " + hex);
         }
         byte[] data = new byte[len / 2];
         for (int i = 0; i < len; i += 2) {
-            data[i / 2] = (byte) ((Character.digit(hex.charAt(i), 16) << 4)
-                    + Character.digit(hex.charAt(i + 1), 16));
+            // Character.digit 对非法字符返回 -1（不抛异常），必须显式校验，
+            // 否则 -1 会被折进字节，静默产出错误数据
+            int high = Character.digit(hex.charAt(i), 16);
+            if (high < 0) {
+                throw new IllegalArgumentException("无效的十六进制字符 '" + hex.charAt(i) + "' (索引 " + i + "): " + hex);
+            }
+            int low = Character.digit(hex.charAt(i + 1), 16);
+            if (low < 0) {
+                throw new IllegalArgumentException("无效的十六进制字符 '" + hex.charAt(i + 1) + "' (索引 " + (i + 1) + "): " + hex);
+            }
+            data[i / 2] = (byte) ((high << 4) + low);
         }
         return data;
     }
@@ -153,14 +169,18 @@ public class AppUtils {
     
     /**
      * 生成随机字符串
+     *
+     * <p>使用 {@link SecureRandom}，避免 {@code Math.random()} 的共享伪随机序列
+     * 被少量样本推测出来（适用于令牌/随机标识场景）。</p>
+     *
      * @param length 长度
      * @return 随机字符串
      */
     public static String generateRandomString(int length) {
         String chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
-        StringBuilder sb = new StringBuilder();
+        StringBuilder sb = new StringBuilder(Math.max(0, length));
         for (int i = 0; i < length; i++) {
-            int index = (int) (chars.length() * Math.random());
+            int index = SECURE_RANDOM.nextInt(chars.length());
             sb.append(chars.charAt(index));
         }
         return sb.toString();
@@ -172,9 +192,10 @@ public class AppUtils {
      * @return 随机数字
      */
     public static String generateRandomNumber(int length) {
-        StringBuilder sb = new StringBuilder();
+        StringBuilder sb = new StringBuilder(Math.max(0, length));
         for (int i = 0; i < length; i++) {
-            sb.append((int) (10 * Math.random()));
+            // 与 generateRandomString 保持一致：使用 SecureRandom 而非可预测的 Math.random()
+            sb.append(SECURE_RANDOM.nextInt(10));
         }
         return sb.toString();
     }

@@ -1,43 +1,54 @@
 package com.yaoguangyun.device;
 
-import java.util.HashMap;
+import com.google.gson.Gson;
+import com.google.gson.GsonBuilder;
+import com.google.gson.JsonElement;
+import com.google.gson.JsonObject;
+import com.google.gson.annotations.SerializedName;
+
+import java.lang.reflect.Field;
+import java.lang.reflect.Modifier;
+import java.util.LinkedHashMap;
 import java.util.Map;
 
 /**
  * 设备信息管理器
  * 基于bbc.me应用的设备信息管理实现
- * 
+ *
  * 功能特点：
  * 1. 单例模式管理设备信息
  * 2. 支持设备信息收集和伪装
  * 3. 提供完整的设备参数映射
  * 4. 支持动态修改设备信息
- * 
+ *
  * 使用场景：
  * - 设备信息伪装
  * - 网络请求参数构建
  * - 设备特征分析
  * - 测试环境模拟
+ *
+ * <p><b>关于两个视图</b>：{@link #getDeviceInfo()} 返回的对象是唯一权威数据源，
+ * {@link #getDeviceInfoMap()} 的键名由 {@code DeviceInfo} 上的 {@code @SerializedName}
+ * 派生（统一 snake_case），因此 map 视图与 JSON 视图的键名始终一致，不会漂移。</p>
  */
 public class DeviceInfoManager {
-    
+
+    /** 序列化用 Gson：包含 null 字段，保证 map 视图始终具备全部字段键 */
+    private static final Gson DEVICE_GSON = new GsonBuilder().serializeNulls().create();
+
     /** 单例实例 */
     private static DeviceInfoManager instance;
-    
-    /** 设备信息对象 */
+
+    /** 设备信息对象（唯一权威数据源） */
     private DeviceInfo deviceInfo;
-    
-    /** 设备信息映射表 */
-    private final Map<String, String> deviceInfoMap;
-    
+
     /**
      * 私有构造函数，防止外部实例化
      */
     private DeviceInfoManager() {
         this.deviceInfo = new DeviceInfo();
-        this.deviceInfoMap = new HashMap<>();
     }
-    
+
     /**
      * 获取单例实例
      * @return DeviceInfoManager实例
@@ -48,7 +59,7 @@ public class DeviceInfoManager {
         }
         return instance;
     }
-    
+
     /**
      * 收集设备信息
      * 
@@ -60,8 +71,10 @@ public class DeviceInfoManager {
      * 
      * 注意：实际部署时应替换为真实的设备信息收集逻辑
      */
-    public void collectDeviceInfo() {
+    public synchronized void collectDeviceInfo() {
         // ==================== 基本设备信息 ====================
+        // 设备唯一标识：必须设置，否则所有请求的 android_id 都为空
+        deviceInfo.setAndroidId("9774d56d682e549c");
         // 品牌和型号信息
         deviceInfo.setBrand("Samsung");
         deviceInfo.setModel("SM-G950F");
@@ -73,6 +86,7 @@ public class DeviceInfoManager {
         deviceInfo.setBoard("universal8895");
         deviceInfo.setHardware("samsungexynos8895");
         deviceInfo.setBootloader("G950FXXU4CRI5");
+        deviceInfo.setSerial("R58M40KXYZT");
         
         // 系统信息
         deviceInfo.setBuildID("R16NW");
@@ -104,7 +118,8 @@ public class DeviceInfoManager {
         deviceInfo.setNetworkType("WIFI");
         deviceInfo.setSimOperator("46000");
         deviceInfo.setSimOperatorName("China Mobile");
-        deviceInfo.setSimSerialNumber("8986012345678901234");
+        // ICCID 的 MNC 段必须与 simOperator 一致：898600... 对应中国移动（46000）
+        deviceInfo.setSimSerialNumber("8986002345678901234");
         deviceInfo.setSubscriberId("460001234567890");
         deviceInfo.setDeviceId("123456789012345");
         deviceInfo.setLine1Number("+8613800138000");
@@ -126,6 +141,9 @@ public class DeviceInfoManager {
         deviceInfo.setSubtype("0");
         deviceInfo.setSubtypeName("");
         deviceInfo.setRadioVersion("G950FXXU4CRI5");
+        deviceInfo.setCellLocation("cid=12345,lac=6789");
+        deviceInfo.setDataActivity("DATA_ACTIVITY_NONE");
+        deviceInfo.setExtraInfo("cmnet");
         deviceInfo.setHeight("2960");
         deviceInfo.setWidth("1440");
         deviceInfo.setRotation("0");
@@ -135,136 +153,109 @@ public class DeviceInfoManager {
         deviceInfo.setBestProvider("gps");
         deviceInfo.setReason("");
         
-        // 更新设备信息映射
-        updateDeviceInfoMap();
-    }
-    
-    /**
-     * 更新设备信息映射
-     * 
-     * 将DeviceInfo对象中的所有字段同步到Map结构中
-     * 便于网络请求参数构建和数据序列化
-     */
-    private void updateDeviceInfoMap() {
-        deviceInfoMap.clear();
-        
-        // ==================== 基本设备信息 ====================
-        deviceInfoMap.put("androidId", deviceInfo.getAndroidId());
-        deviceInfoMap.put("brand", deviceInfo.getBrand());
-        deviceInfoMap.put("model", deviceInfo.getModel());
-        deviceInfoMap.put("device", deviceInfo.getDevice());
-        deviceInfoMap.put("product", deviceInfo.getProduct());
-        deviceInfoMap.put("manufacturer", deviceInfo.getManufacturer());
-        deviceInfoMap.put("board", deviceInfo.getBoard());
-        deviceInfoMap.put("hardware", deviceInfo.getHardware());
-        deviceInfoMap.put("bootloader", deviceInfo.getBootloader());
-        deviceInfoMap.put("serial", deviceInfo.getSerial());
-        deviceInfoMap.put("buildID", deviceInfo.getBuildID());
-        deviceInfoMap.put("codename", deviceInfo.getCodename());
-        deviceInfoMap.put("display", deviceInfo.getDisplay());
-        deviceInfoMap.put("fingerprint", deviceInfo.getFingerprint());
-        deviceInfoMap.put("incremental", deviceInfo.getIncremental());
-        deviceInfoMap.put("release", deviceInfo.getRelease());
-        deviceInfoMap.put("sdk", deviceInfo.getSdk());
-        deviceInfoMap.put("sdkInt", deviceInfo.getSdkInt());
-        deviceInfoMap.put("tags", deviceInfo.getTags());
-        deviceInfoMap.put("user", deviceInfo.getUser());
-        deviceInfoMap.put("version", deviceInfo.getVersion());
-        deviceInfoMap.put("density", deviceInfo.getDensity());
-        deviceInfoMap.put("densityDpi", deviceInfo.getDensityDpi());
-        deviceInfoMap.put("heightPixels", deviceInfo.getHeightPixels());
-        deviceInfoMap.put("widthPixels", deviceInfo.getWidthPixels());
-        deviceInfoMap.put("scaledDensity", deviceInfo.getScaledDensity());
-        deviceInfoMap.put("macAddress", deviceInfo.getMacAddress());
-        deviceInfoMap.put("ipAddress", deviceInfo.getIpAddress());
-        deviceInfoMap.put("ssid", deviceInfo.getSsid());
-        deviceInfoMap.put("bssid", deviceInfo.getBssid());
-        deviceInfoMap.put("networkOperator", deviceInfo.getNetworkOperator());
-        deviceInfoMap.put("networkOperatorName", deviceInfo.getNetworkOperatorName());
-        deviceInfoMap.put("networkType", deviceInfo.getNetworkType());
-        deviceInfoMap.put("simOperator", deviceInfo.getSimOperator());
-        deviceInfoMap.put("simOperatorName", deviceInfo.getSimOperatorName());
-        deviceInfoMap.put("simSerialNumber", deviceInfo.getSimSerialNumber());
-        deviceInfoMap.put("subscriberId", deviceInfo.getSubscriberId());
-        deviceInfoMap.put("deviceId", deviceInfo.getDeviceId());
-        deviceInfoMap.put("line1Number", deviceInfo.getLine1Number());
-        deviceInfoMap.put("latitude", deviceInfo.getLatitude());
-        deviceInfoMap.put("longitude", deviceInfo.getLongitude());
-        deviceInfoMap.put("accuracy", deviceInfo.getAccuracy());
-        deviceInfoMap.put("host", deviceInfo.getHost());
-        deviceInfoMap.put("localHost", deviceInfo.getLocalHost());
-        deviceInfoMap.put("canonicalHostName", deviceInfo.getCanonicalHostName());
-        deviceInfoMap.put("hostAddress", deviceInfo.getHostAddress());
-        deviceInfoMap.put("hostName", deviceInfo.getHostName());
-        deviceInfoMap.put("time", deviceInfo.getTime());
-        deviceInfoMap.put("type", deviceInfo.getType());
-        deviceInfoMap.put("typeName", deviceInfo.getTypeName());
-        deviceInfoMap.put("subtype", deviceInfo.getSubtype());
-        deviceInfoMap.put("subtypeName", deviceInfo.getSubtypeName());
-        deviceInfoMap.put("radioVersion", deviceInfo.getRadioVersion());
-        deviceInfoMap.put("cellLocation", deviceInfo.getCellLocation());
-        deviceInfoMap.put("dataActivity", deviceInfo.getDataActivity());
-        deviceInfoMap.put("extraInfo", deviceInfo.getExtraInfo());
-        deviceInfoMap.put("height", deviceInfo.getHeight());
-        deviceInfoMap.put("width", deviceInfo.getWidth());
-        deviceInfoMap.put("rotation", deviceInfo.getRotation());
-        deviceInfoMap.put("rssi", deviceInfo.getRssi());
-        deviceInfoMap.put("networkId", deviceInfo.getNetworkId());
-        deviceInfoMap.put("provider", deviceInfo.getProvider());
-        deviceInfoMap.put("bestProvider", deviceInfo.getBestProvider());
-        deviceInfoMap.put("reason", deviceInfo.getReason());
-        deviceInfoMap.put("scanResultsBSSID", deviceInfo.getScanResultsBSSID());
-        deviceInfoMap.put("scanResultsCapabilities", deviceInfo.getScanResultsCapabilities());
-        deviceInfoMap.put("scanResultsFrequency", deviceInfo.getScanResultsFrequency());
-        deviceInfoMap.put("scanResultsLevel", deviceInfo.getScanResultsLevel());
-        deviceInfoMap.put("scanResultsSSID", deviceInfo.getScanResultsSSID());
+        // WiFi 扫描结果
+        deviceInfo.setScanResultsBSSID("00:11:22:33:44:55,aa:bb:cc:dd:ee:ff");
+        deviceInfo.setScanResultsCapabilities("[WPA2-PSK-CCMP][ESS],[WPA2-PSK-CCMP][ESS]");
+        deviceInfo.setScanResultsFrequency("2412,2437");
+        deviceInfo.setScanResultsLevel("-50,-67");
+        deviceInfo.setScanResultsSSID("MyWiFi,NeighborWiFi");
     }
     
     /**
      * 获取设备信息
+     *
+     * <p>返回的是内部权威对象本身。直接修改它不会同步到 {@link #getDeviceInfoMap()}
+     * 的缓存语义之外——两个视图都是从同一个对象派生，因此始终一致；
+     * 但若需要按字段名修改，请使用 {@link #setDeviceInfo(String, String)} 以便校验键名。</p>
+     *
      * @return DeviceInfo实例
      */
-    public DeviceInfo getDeviceInfo() {
+    public synchronized DeviceInfo getDeviceInfo() {
         return deviceInfo;
     }
     
     /**
      * 获取设备信息映射
+     *
+     * <p>键名与 {@code DeviceInfo} 的 JSON 字段名一致（snake_case），
+     * 由对象实时派生，因此不会与对象产生漂移。</p>
+     *
      * @return 设备信息映射的副本（修改副本不影响内部状态）
      */
-    public Map<String, String> getDeviceInfoMap() {
-        return new HashMap<>(deviceInfoMap);
+    public synchronized Map<String, String> getDeviceInfoMap() {
+        return new LinkedHashMap<>(buildDeviceInfoMap());
     }
     
     /**
      * 获取特定设备信息
-     * @param key 键
+     * @param key 键（snake_case，与 JSON 字段名一致）
      * @return 值
      */
-    public String getDeviceInfo(String key) {
-        return deviceInfoMap.get(key);
+    public synchronized String getDeviceInfo(String key) {
+        return buildDeviceInfoMap().get(key);
     }
     
     /**
      * 设置设备信息
-     * @param key 键
+     *
+     * <p>按字段名修改权威对象，两个视图都会随之更新。</p>
+     *
+     * <p><b>对象身份保持</b>：这里直接在原 {@link DeviceInfo} 实例上写入字段，
+     * 而不是重建对象。否则调用方此前通过 {@link #getDeviceInfo()} 取得的引用会变成
+     * 「过期副本」，静默读到旧值。</p>
+     *
+     * @param key 键（snake_case，与 JSON 字段名一致）
      * @param value 值
+     * @throws IllegalArgumentException 键不是 DeviceInfo 的已知字段
      */
-    public void setDeviceInfo(String key, String value) {
-        deviceInfoMap.put(key, value);
-        
-        // 同时更新DeviceInfo对象
-        switch (key) {
-            case "androidId":
-                deviceInfo.setAndroidId(value);
-                break;
-            case "brand":
-                deviceInfo.setBrand(value);
-                break;
-            case "model":
-                deviceInfo.setModel(value);
-                break;
-            // ... 其他字段的设置
+    public synchronized void setDeviceInfo(String key, String value) {
+        Field field = findFieldBySerializedName(key);
+        if (field == null) {
+            throw new IllegalArgumentException("未知的设备信息字段: " + key);
         }
+        try {
+            field.setAccessible(true);
+            field.set(deviceInfo, value);
+        } catch (ReflectiveOperationException e) {
+            throw new IllegalStateException("设置设备信息失败: " + key, e);
+        }
+    }
+
+    /**
+     * 按 JSON 字段名（@SerializedName）查找 DeviceInfo 的字段。
+     *
+     * @param serializedName JSON 字段名
+     * @return 对应字段；不存在时返回 null
+     */
+    private static Field findFieldBySerializedName(String serializedName) {
+        if (serializedName == null || serializedName.isEmpty()) {
+            return null;
+        }
+        for (Field field : DeviceInfo.class.getDeclaredFields()) {
+            if (Modifier.isStatic(field.getModifiers())) {
+                continue;
+            }
+            SerializedName annotation = field.getAnnotation(SerializedName.class);
+            String name = annotation != null ? annotation.value() : field.getName();
+            if (serializedName.equals(name)) {
+                return field;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * 从权威对象派生 key → value 映射（键为 @SerializedName 值）。
+     *
+     * @return 包含全部字段（含 null 值）的映射
+     */
+    private Map<String, String> buildDeviceInfoMap() {
+        JsonObject json = DEVICE_GSON.toJsonTree(deviceInfo).getAsJsonObject();
+        Map<String, String> map = new LinkedHashMap<>();
+        for (Map.Entry<String, JsonElement> entry : json.entrySet()) {
+            JsonElement value = entry.getValue();
+            map.put(entry.getKey(), value.isJsonNull() ? null : value.getAsString());
+        }
+        return map;
     }
 }

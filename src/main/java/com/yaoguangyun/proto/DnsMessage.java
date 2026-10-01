@@ -31,10 +31,17 @@ public class DnsMessage {
     }
     
     /**
-     * 获取属性映射
+     * 获取属性映射（惰性初始化，保证非 null）
+     *
+     * <p>Gson 反序列化会绕过构造函数与 setter 直接写字段，JSON 中的
+     * {@code "properties": null} 会让字段变成 null；这里统一补齐。</p>
+     *
      * @return 属性映射
      */
     public Map<String, String> getProperties() {
+        if (properties == null) {
+            properties = new HashMap<>();
+        }
         return properties;
     }
     
@@ -51,7 +58,7 @@ public class DnsMessage {
      * @return 属性数量
      */
     public int getPropertiesCount() {
-        return properties.size();
+        return getProperties().size();
     }
     
     /**
@@ -60,7 +67,7 @@ public class DnsMessage {
      * @return 是否包含
      */
     public boolean containsProperty(String key) {
-        return properties.containsKey(key);
+        return getProperties().containsKey(key);
     }
     
     /**
@@ -69,7 +76,7 @@ public class DnsMessage {
      * @return 属性值，如果不存在则返回null
      */
     public String getProperty(String key) {
-        return properties.get(key);
+        return getProperties().get(key);
     }
     
     /**
@@ -79,7 +86,7 @@ public class DnsMessage {
      * @return 属性值
      */
     public String getPropertyOrDefault(String key, String defaultValue) {
-        return properties.getOrDefault(key, defaultValue);
+        return getProperties().getOrDefault(key, defaultValue);
     }
     
     /**
@@ -88,7 +95,7 @@ public class DnsMessage {
      * @param value 值
      */
     public void setProperty(String key, String value) {
-        properties.put(key, value);
+        getProperties().put(key, value);
     }
     
     /**
@@ -96,14 +103,14 @@ public class DnsMessage {
      * @param key 键
      */
     public void removeProperty(String key) {
-        properties.remove(key);
+        getProperties().remove(key);
     }
     
     /**
      * 清空属性
      */
     public void clearProperties() {
-        properties.clear();
+        getProperties().clear();
     }
     
     @Override
@@ -116,12 +123,12 @@ public class DnsMessage {
         }
         
         DnsMessage that = (DnsMessage) obj;
-        return properties.equals(that.properties);
+        return getProperties().equals(that.getProperties());
     }
     
     @Override
     public int hashCode() {
-        return properties.hashCode();
+        return getProperties().hashCode();
     }
     
     @Override

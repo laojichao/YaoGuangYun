@@ -3,6 +3,8 @@ package com.yaoguangyun;
 import com.yaoguangyun.example.NetworkExample;
 import com.yaoguangyun.test.NetworkTest;
 
+import java.util.Locale;
+
 /**
  * 主类 - 程序入口
  * 
@@ -16,14 +18,15 @@ import com.yaoguangyun.test.NetworkTest;
  * 4. 展示迁移后的功能
  * 
  * 运行方式：
- * - Windows: run.bat
- * - Linux/Mac: ./run.sh
+ * - Maven: mvn exec:java -Dexec.mainClass=com.yaoguangyun.Main [-Dexec.args="test"]
  * - IDE: 直接运行Main类
+ * - 打包后: java -jar target/YaoGuangYun-1.0.0.jar [command]
  * 
  * 参数说明：
  * - 无参数：运行完整示例
- * - test：运行功能测试
+ * - test：运行功能测试（失败时以非0退出码结束）
  * - server：启动本地测试服务器
+ * - help：显示帮助
  */
 public class Main {
     
@@ -36,14 +39,18 @@ public class Main {
         System.out.println("瑶光云 应用启动");
         System.out.println("====================");
         
+        // 退出码：0 表示成功，非0 表示失败。CI 依赖它判断回归。
+        int exitCode = 0;
+        
         // 检查命令行参数
         if (args.length > 0) {
-            String command = args[0].toLowerCase();
+            // 使用 Locale.ROOT，避免土耳其语等区域把 'I' 转成 'ı' 导致命令无法识别
+            String command = args[0].toLowerCase(Locale.ROOT);
             
             switch (command) {
                 case "test":
-                    // 运行功能测试
-                    NetworkTest.main(args);
+                    // 运行功能测试：把失败项数量作为退出码向上传递
+                    exitCode = NetworkTest.run();
                     break;
                     
                 case "server":
@@ -56,7 +63,8 @@ public class Main {
                         System.in.read();
                         server.stop();
                     } catch (Exception e) {
-                        System.err.println("服务器启动失败: " + e.getMessage());
+                        System.err.println("服务器启动失败: " + e);
+                        exitCode = 1;
                     }
                     break;
                     
@@ -68,6 +76,7 @@ public class Main {
                 default:
                     System.out.println("未知命令: " + command);
                     showHelp();
+                    exitCode = 1;
                     break;
             }
         } else {
@@ -76,6 +85,11 @@ public class Main {
         }
         
         System.out.println("\n程序执行完成！");
+        
+        // 显式退出：线程池等后台线程不应阻止进程结束
+        if (exitCode != 0) {
+            System.exit(exitCode);
+        }
     }
     
     /**
@@ -83,15 +97,15 @@ public class Main {
      */
     private static void showHelp() {
         System.out.println("\n使用方法:");
-        System.out.println("  java -cp ... com.yaoguangyun.Main [command]");
+        System.out.println("  java -jar YaoGuangYun-1.0.0.jar [command]");
         System.out.println("\n可用命令:");
         System.out.println("  (无参数)  - 运行完整示例");
-        System.out.println("  test      - 运行功能测试");
-        System.out.println("  server    - 启动本地测试服务器");
+        System.out.println("  test      - 运行功能测试（失败时返回非0退出码）");
+        System.out.println("  server    - 启动本地测试服务器（默认8080端口）");
         System.out.println("  help      - 显示此帮助信息");
         System.out.println("\n示例:");
-        System.out.println("  java -cp ... com.yaoguangyun.Main");
-        System.out.println("  java -cp ... com.yaoguangyun.Main test");
-        System.out.println("  java -cp ... com.yaoguangyun.Main server");
+        System.out.println("  java -jar YaoGuangYun-1.0.0.jar");
+        System.out.println("  java -jar YaoGuangYun-1.0.0.jar test");
+        System.out.println("  java -jar YaoGuangYun-1.0.0.jar server");
     }
 }

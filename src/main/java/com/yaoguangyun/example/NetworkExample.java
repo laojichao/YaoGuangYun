@@ -63,59 +63,97 @@ public class NetworkExample {
             
             @Override
             public void onError(Exception e) {
-                System.err.println("✗ TCP请求失败: " + e.getMessage());
+                System.err.println("✗ TCP请求失败: " + describe(e));
                 System.out.println("提示: 如果服务器不可用，这是正常现象");
             }
         });
         
-        // 等待异步操作完成
+        // 等待异步操作完成（真实场景应使用 CountDownLatch，见 NetworkTest）
         try {
             Thread.sleep(2000);
         } catch (InterruptedException e) {
-            // 忽略中断异常
+            Thread.currentThread().interrupt();
         }
     }
     
     /**
      * 测试HTTP请求
+     *
+     * <p>默认对本地测试服务器发起请求（离线可用、可断言）；
+     * 外部服务仅作参考，避免示例在无网络环境下刷出无意义的红字。</p>
      */
     public static void testHttpRequest() {
         System.out.println("\n=== 测试HTTP请求 ===");
         
-        // 测试URL列表
-        String[] testUrls = {
-            "http://httpbin.org/get",  // 公共测试API
-            "http://" + ServerConfig.getServerIp() + ":" + ServerConfig.getHttpPort() + "/api/test"
-        };
-        
         HttpClient httpClient = new HttpClient(5000);
-        
-        // 添加请求头
         httpClient.addHeader("User-Agent", "Mozilla/5.0");
         httpClient.addHeader("Accept", "application/json");
         
-        for (String url : testUrls) {
-            System.out.println("\n测试URL: " + url);
-            try {
-                InputStream response = httpClient.get(url);
-                
-                // 读取响应
-                byte[] buffer = new byte[1024];
-                int bytesRead = response.read(buffer);
-                if (bytesRead > 0) {
-                    String responseStr = new String(buffer, 0, bytesRead, StandardCharsets.UTF_8);
-                    System.out.println("HTTP响应: " + responseStr);
-                } else {
-                    System.out.println("HTTP响应: 空响应");
+        // 启动本地测试服务器，作为确定性的测试目标
+        com.yaoguangyun.test.SimpleHttpServer server = new com.yaoguangyun.test.SimpleHttpServer(0);
+        try {
+            server.start();
+            int port = server.getBoundPort();
+            String[] testUrls = {
+                "http://127.0.0.1:" + port + "/api/test",
+                "http://127.0.0.1:" + port + "/api/device"
+            };
+            for (String url : testUrls) {
+                System.out.println("\n测试URL: " + url);
+                try {
+                    System.out.println("HTTP响应: " + readAll(httpClient.get(url)));
+                    System.out.println("✓ HTTP请求成功");
+                } catch (IOException e) {
+                    System.err.println("✗ HTTP请求失败: " + describe(e));
                 }
-                
-                response.close();
-                System.out.println("✓ HTTP请求成功");
-                
-            } catch (IOException e) {
-                System.err.println("✗ HTTP请求失败: " + e.getMessage());
             }
+        } catch (IOException e) {
+            System.err.println("✗ 本地测试服务器启动失败: " + describe(e));
+        } finally {
+            server.stop();
         }
+    }
+
+    /**
+     * 完整读取响应流。
+     *
+     * <p>单次 {@code read()} 只保证返回「至少一个字节」，不保证读满；
+     * 原实现只读一次 1024 字节，超过该长度的响应会被静默截断（甚至切断 UTF-8 字符）
+     * 却仍然报告“请求成功”。</p>
+     *
+     * @param inputStream 响应流
+     * @return 完整响应文本
+     * @throws IOException 读取失败
+     */
+    private static String readAll(InputStream inputStream) throws IOException {
+        if (inputStream == null) {
+            return "";
+        }
+        try {
+            java.io.ByteArrayOutputStream buffer = new java.io.ByteArrayOutputStream();
+            byte[] chunk = new byte[4096];
+            int read;
+            while ((read = inputStream.read(chunk)) != -1) {
+                buffer.write(chunk, 0, read);
+            }
+            return new String(buffer.toByteArray(), StandardCharsets.UTF_8);
+        } finally {
+            inputStream.close();
+        }
+    }
+
+    /**
+     * 描述异常：getMessage() 为 null 时给出类名，避免打印出「失败: null」
+     */
+    private static String describe(Throwable e) {
+        if (e == null) {
+            return "null";
+        }
+        String message = e.getMessage();
+        if (message == null || message.isEmpty()) {
+            return e.getClass().getSimpleName() + "(无消息)";
+        }
+        return message;
     }
     
     /**
@@ -127,16 +165,16 @@ public class NetworkExample {
         DeviceInfoManager deviceInfoManager = DeviceInfoManager.getInstance();
         deviceInfoManager.collectDeviceInfo();
         
-        // 显示部分设备信息
+        // 显示部分设备信息（键名与 DeviceInfo 的 JSON 字段名一致，均为 snake_case）
         Map<String, String> deviceInfo = deviceInfoManager.getDeviceInfoMap();
         System.out.println("品牌: " + deviceInfo.get("brand"));
         System.out.println("型号: " + deviceInfo.get("model"));
         System.out.println("Android版本: " + deviceInfo.get("release"));
-        System.out.println("SDK版本: " + deviceInfo.get("sdkInt"));
-        System.out.println("屏幕分辨率: " + deviceInfo.get("widthPixels") + "x" + deviceInfo.get("heightPixels"));
-        System.out.println("MAC地址: " + deviceInfo.get("macAddress"));
-        System.out.println("IP地址: " + deviceInfo.get("ipAddress"));
-        System.out.println("网络类型: " + deviceInfo.get("networkType"));
+        System.out.println("SDK版本: " + deviceInfo.get("sdk_int"));
+        System.out.println("屏幕分辨率: " + deviceInfo.get("width_pixels") + "x" + deviceInfo.get("height_pixels"));
+        System.out.println("MAC地址: " + deviceInfo.get("mac_address"));
+        System.out.println("IP地址: " + deviceInfo.get("ip_address"));
+        System.out.println("网络类型: " + deviceInfo.get("network_type"));
     }
     
     /**
@@ -173,21 +211,20 @@ public class NetworkExample {
                 System.out.println("✗ 加密解密测试失败！");
             }
             
-            // 使用私钥加密，公钥解密（签名流程）
-            System.out.println("\n--- 私钥加密，公钥解密（签名） ---");
-            String signedData = RsaEncryptUtils.encryptWithPrivateKey(testData, privateKey);
-            System.out.println("签名后: " + signedData);
-            
-            String verifiedData = RsaEncryptUtils.decryptWithPublicKey(signedData, publicKey);
-            System.out.println("验证后: " + verifiedData);
-            
-            // 验证签名结果
-            if (testData.equals(verifiedData)) {
+            // 数字签名与验签（SHA256withRSA）——这是正确的签名方式
+            System.out.println("\n--- 数字签名与验签（SHA256withRSA） ---");
+            String signature = RsaEncryptUtils.sign(testData, privateKey);
+            System.out.println("签名: " + signature);
+            System.out.println("验签（原始数据）: " + RsaEncryptUtils.verify(testData, signature, publicKey));
+            System.out.println("验签（被篡改）  : " + RsaEncryptUtils.verify(testData + "x", signature, publicKey));
+
+            if (RsaEncryptUtils.verify(testData, signature, publicKey)
+                    && !RsaEncryptUtils.verify(testData + "x", signature, publicKey)) {
                 System.out.println("✓ 签名验证测试成功！");
             } else {
                 System.out.println("✗ 签名验证测试失败！");
             }
-            
+
             // 测试使用服务器公钥（仅加密，无法解密）
             System.out.println("\n--- 使用服务器公钥加密（无法本地解密） ---");
             String serverPublicKey = ServerConfig.getRsaPublicKey();
@@ -196,8 +233,8 @@ public class NetworkExample {
             System.out.println("注意：此数据只能由服务器私钥解密");
             
         } catch (Exception e) {
-            System.err.println("RSA加密测试失败: " + e.getMessage());
-            e.printStackTrace();
+            // 不使用 printStackTrace：示例不应示范把原始栈打印到 stderr 的写法
+            System.err.println("RSA加密测试失败: " + describe(e));
         }
     }
     

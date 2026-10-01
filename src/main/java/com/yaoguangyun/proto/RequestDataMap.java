@@ -2,7 +2,6 @@ package com.yaoguangyun.proto;
 
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
-import java.util.HashMap;
 import java.util.Map;
 
 /**
@@ -44,8 +43,12 @@ public class RequestDataMap {
      * 创建指定大小的空数据
      * @param size 大小
      * @return RequestDataMap实例
+     * @throws IllegalArgumentException size 为负数
      */
     public static RequestDataMap empty(int size) {
+        if (size < 0) {
+            throw new IllegalArgumentException("size 不能为负数: " + size);
+        }
         return new RequestDataMap(new byte[size]);
     }
     
@@ -75,6 +78,9 @@ public class RequestDataMap {
      * @return RequestDataMap实例
      */
     public static RequestDataMap copyFrom(byte[] data, int offset, int length) {
+        if (data == null) {
+            throw new IllegalArgumentException("data 不能为 null");
+        }
         if (offset < 0 || length < 0 || offset + length > data.length) {
             throw new IndexOutOfBoundsException(
                 "offset=" + offset + ", length=" + length + ", data.length=" + data.length);
@@ -132,8 +138,12 @@ public class RequestDataMap {
      * 检查是否包含指定字节序列
      * @param target 目标字节数组
      * @return 是否包含
+     * @throws IllegalArgumentException target 为 null
      */
     public boolean contains(byte[] target) {
+        if (target == null) {
+            throw new IllegalArgumentException("target 不能为 null");
+        }
         if (target.length > data.length) {
             return false;
         }
@@ -157,8 +167,12 @@ public class RequestDataMap {
      * 检查是否包含指定字符串
      * @param target 目标字符串
      * @return 是否包含
+     * @throws IllegalArgumentException target 为 null
      */
     public boolean contains(String target) {
+        if (target == null) {
+            throw new IllegalArgumentException("target 不能为 null");
+        }
         return contains(target.getBytes(StandardCharsets.UTF_8));
     }
     
@@ -167,8 +181,12 @@ public class RequestDataMap {
      * @param target 目标字节数组
      * @param start 起始位置
      * @return 位置索引，未找到返回-1
+     * @throws IllegalArgumentException target 为 null
      */
     public int indexOf(byte[] target, int start) {
+        if (target == null) {
+            throw new IllegalArgumentException("target 不能为 null");
+        }
         int from = Math.max(0, start);
         for (int i = from; i <= data.length - target.length; i++) {
             boolean found = true;
@@ -189,8 +207,12 @@ public class RequestDataMap {
      * 查找字符串的位置
      * @param target 目标字符串
      * @return 位置索引，未找到返回-1
+     * @throws IllegalArgumentException target 为 null
      */
     public int indexOf(String target) {
+        if (target == null) {
+            throw new IllegalArgumentException("target 不能为 null");
+        }
         return indexOf(target.getBytes(StandardCharsets.UTF_8), 0);
     }
     
@@ -213,8 +235,12 @@ public class RequestDataMap {
      * 连接数据
      * @param other 其他数据
      * @return 连接后的数据
+     * @throws IllegalArgumentException other 为 null
      */
     public RequestDataMap concat(RequestDataMap other) {
+        if (other == null) {
+            throw new IllegalArgumentException("other 不能为 null");
+        }
         byte[] newData = new byte[data.length + other.data.length];
         System.arraycopy(data, 0, newData, 0, data.length);
         System.arraycopy(other.data, 0, newData, data.length, other.data.length);

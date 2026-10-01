@@ -1,5 +1,6 @@
 package com.yaoguangyun.device;
 
+import com.google.gson.Gson;
 import com.google.gson.annotations.SerializedName;
 
 /**
@@ -10,7 +11,8 @@ import com.google.gson.annotations.SerializedName;
  * 包含完整的设备信息，用于设备伪装和信息收集
  * 收集70+个设备参数，涵盖硬件、系统、网络、位置等信息
  * 
- * 使用Gson注解支持JSON序列化和反序列化
+ * 使用Gson注解支持JSON序列化和反序列化。
+ * 所有字段统一使用 snake_case 的 {@code @SerializedName}，与请求载荷中的键名保持一致。
  */
 public class DeviceInfo {
     
@@ -147,60 +149,87 @@ public class DeviceInfo {
     
     // ==================== 网络详细信息 ====================
     /** 主机名 */
+    @SerializedName("host")
     private String host;
     /** 本地主机名 */
+    @SerializedName("local_host")
     private String localHost;
     /** 规范主机名 */
+    @SerializedName("canonical_host_name")
     private String canonicalHostName;
     /** 主机地址 */
+    @SerializedName("host_address")
     private String hostAddress;
     /** 主机名称 */
+    @SerializedName("host_name")
     private String hostName;
     /** 时间戳 */
+    @SerializedName("time")
     private String time;
     /** 网络类型 */
+    @SerializedName("type")
     private String type;
     /** 网络类型名称 */
+    @SerializedName("type_name")
     private String typeName;
     /** 网络子类型 */
+    @SerializedName("subtype")
     private String subtype;
     /** 网络子类型名称 */
+    @SerializedName("subtype_name")
     private String subtypeName;
     /** 基带版本 */
+    @SerializedName("radio_version")
     private String radioVersion;
     /** 基站位置 */
+    @SerializedName("cell_location")
     private String cellLocation;
     /** 数据活动状态 */
+    @SerializedName("data_activity")
     private String dataActivity;
     /** 额外信息 */
+    @SerializedName("extra_info")
     private String extraInfo;
     /** 屏幕高度 */
+    @SerializedName("height")
     private String height;
     /** 屏幕宽度 */
+    @SerializedName("width")
     private String width;
     /** 屏幕旋转角度 */
+    @SerializedName("rotation")
     private String rotation;
     /** 信号强度 */
+    @SerializedName("rssi")
     private String rssi;
     /** 网络ID */
+    @SerializedName("network_id")
     private String networkId;
     /** 定位提供者 */
+    @SerializedName("provider")
     private String provider;
     /** 最佳定位提供者 */
+    @SerializedName("best_provider")
     private String bestProvider;
     /** 网络原因 */
+    @SerializedName("reason")
     private String reason;
     
     // ==================== WiFi扫描结果 ====================
     /** 扫描结果BSSID列表 */
+    @SerializedName("scan_results_bssid")
     private String scanResultsBSSID;
     /** 扫描结果能力列表 */
+    @SerializedName("scan_results_capabilities")
     private String scanResultsCapabilities;
     /** 扫描结果频率列表 */
+    @SerializedName("scan_results_frequency")
     private String scanResultsFrequency;
     /** 扫描结果信号强度列表 */
+    @SerializedName("scan_results_level")
     private String scanResultsLevel;
     /** 扫描结果SSID列表 */
+    @SerializedName("scan_results_ssid")
     private String scanResultsSSID;
     
     /**
@@ -760,5 +789,40 @@ public class DeviceInfo {
     
     public void setScanResultsSSID(String scanResultsSSID) {
         this.scanResultsSSID = scanResultsSSID;
+    }
+
+    // ==================== 通用方法 ====================
+
+    /** 用于 equals/hashCode/toString 的 Gson 实例（字段全部由 @SerializedName 驱动） */
+    private static final Gson GSON = new Gson();
+
+    /**
+     * 判断两个设备信息是否相等。
+     *
+     * <p>本类有 69 个字段，逐字段手写比较极易漏项或错位，因此直接比较序列化结果——
+     * 序列化键由 {@code @SerializedName} 唯一决定，等价于逐字段比较且与 JSON 契约一致。</p>
+     *
+     * @param obj 待比较对象
+     * @return 是否相等
+     */
+    @Override
+    public boolean equals(Object obj) {
+        if (this == obj) {
+            return true;
+        }
+        if (obj == null || getClass() != obj.getClass()) {
+            return false;
+        }
+        return GSON.toJson(this).equals(GSON.toJson(obj));
+    }
+
+    @Override
+    public int hashCode() {
+        return GSON.toJson(this).hashCode();
+    }
+
+    @Override
+    public String toString() {
+        return "DeviceInfo" + GSON.toJson(this);
     }
 }

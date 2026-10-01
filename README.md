@@ -7,10 +7,10 @@
 ### 核心功能
 
 1. **TCP 客户端通信**
-   - 自定义 TCP 协议实现
-   - 支持 GZIP 压缩
-   - 支持 Protobuf 消息格式
-   - 线程池管理
+   - 自定义 TCP 协议实现（`"Epic"` 魔数帧，非标准 Protobuf 线格式）
+   - 支持 GZIP 压缩（响应自动解压）
+   - 线程池管理（守护线程）
+   - 超时与响应长度上限保护
 
 2. **HTTP 请求处理**
    - 基于 HttpURLConnection 的实现
@@ -24,8 +24,8 @@
    - 包含 70+ 设备参数
 
 4. **加密工具**
-   - RSA 公钥加密/私钥解密
-   - RSA 签名/验证
+   - RSA 公钥加密/私钥解密（2048 位，单块上限 245 字节）
+   - RSA 数字签名/验签（SHA256withRSA，验签失败返回 false）
    - Base64 编码/解码
 
 5. **JSON数据处理**
@@ -79,13 +79,16 @@ src/main/java/com/yaoguangyun/
 # 编译项目
 mvn clean compile
 
+# 运行单元测试（JUnit，离线可跑）
+mvn test
+
 # 运行完整示例
 mvn exec:java -Dexec.mainClass="com.yaoguangyun.Main"
 
-# 运行功能测试
+# 运行功能自检（本地检查失败时以非0退出码结束）
 mvn exec:java -Dexec.mainClass="com.yaoguangyun.Main" -Dexec.args="test"
 
-# 启动本地测试服务器
+# 启动本地测试服务器（仅监听回环地址）
 mvn exec:java -Dexec.mainClass="com.yaoguangyun.Main" -Dexec.args="server"
 ```
 
@@ -201,14 +204,31 @@ String response = HutoolUtils.httpGet("http://httpbin.org/get");
 ## 文档说明
 
 - **README.md** - 项目主文档（本文件）
+- **CLAUDE.md** - 面向 AI 编码助手的项目说明（架构、构建、约定）
 - **HUTOOL_USAGE.md** - Hutool 使用指南
+- **AUDIT_REPORT.md** - 代码全面排查报告：问题清单、修复状态与对抗性复核结论
+
+## 测试与自检
+
+```bash
+# 单元测试（JUnit 4，离线可跑，不依赖外部服务器）
+mvn test
+
+# 功能自检：本地检查失败时以非 0 退出码结束，可用于 CI 判定回归
+java -jar target/YaoGuangYun-1.0.0.jar test
+```
+
+`mvn test` 当前有 36 个用例，覆盖 RSA 加解密与签名、TCP 响应解码（含压缩炸弹防护）、
+HTTP 重定向语义、DNS 报文边界、Gson 严格校验、设备信息双视图一致性、配置解析容错等。
 
 ## 注意事项
 
-1. **网络连接**: 某些功能需要实际的网络连接才能正常工作
-2. **服务器配置**: 项目使用 `hc.t60.top` 作为服务器地址，可能需要根据实际情况调整
+1. **网络连接**: 某些功能需要实际的网络连接才能正常工作（单元测试不需要）
+2. **服务器配置**: 项目使用 `hc.t60.top` 作为服务器地址，可通过 `config.json` 或环境变量调整
 3. **编码问题**: 项目使用 UTF-8 编码
-4. **依赖管理**: 使用 Maven 管理依赖
+4. **依赖管理**: 使用 Maven 管理依赖（Gson 来自 Maven 仓库，仓库内不附带 jar）
+5. **配置**: `config.json` 位于项目根目录，会实际驱动 `ServerConfig`；打包后随 jar 一起发布
+6. **密钥**: `security.app_key` 建议改用环境变量 `YAOGUANGYUN_APP_KEY` 注入，不要提交到仓库
 
 ## 许可证
 

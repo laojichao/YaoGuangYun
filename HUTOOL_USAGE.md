@@ -40,13 +40,6 @@ Hutool是一个Java工具包，提供了很多实用的工具类。本项目已�
         <artifactId>hutool-crypto</artifactId>
         <version>${hutool.version}</version>
     </dependency>
-
-    <!-- Hutool网络工具 -->
-    <dependency>
-        <groupId>cn.hutool</groupId>
-        <artifactId>hutool-socket</artifactId>
-        <version>${hutool.version}</version>
-    </dependency>
 </dependencies>
 ```
 
@@ -448,7 +441,6 @@ Hutool提供了丰富的工具类，可以大大简化Java开发。本项目已�
 2. **hutool-http** - HTTP客户端
 3. **hutool-json** - JSON处理
 4. **hutool-crypto** - 加密解密
-5. **hutool-socket** - 网络工具
 
 通过使用Hutool，可以：
 - 减少重复代码
