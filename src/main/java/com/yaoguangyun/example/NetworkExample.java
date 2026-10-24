@@ -54,23 +54,28 @@ public class NetworkExample {
         
         System.out.println("发送TCP消息: " + testMessage);
         
-        // 发送TCP消息，使用回调处理结果
+        // 发送TCP消息，使用回调处理结果；CountDownLatch 确保示例退出前拿到结果，
+        // 避免「打印还没发生 main 就结束了」或「白等 2 秒」两种竞态
+        final java.util.concurrent.CountDownLatch done = new java.util.concurrent.CountDownLatch(1);
         tcpClient.sendMessage(messageBytes, new TcpResponseCallback() {
             @Override
             public void onSuccess(String response) {
                 System.out.println("✓ TCP响应成功: " + response);
+                done.countDown();
             }
-            
+
             @Override
             public void onError(Exception e) {
                 System.err.println("✗ TCP请求失败: " + describe(e));
                 System.out.println("提示: 如果服务器不可用，这是正常现象");
+                done.countDown();
             }
         });
-        
-        // 等待异步操作完成（真实场景应使用 CountDownLatch，见 NetworkTest）
+
         try {
-            Thread.sleep(2000);
+            if (!done.await(10, java.util.concurrent.TimeUnit.SECONDS)) {
+                System.out.println("（10 秒内未收到 TCP 回调，不再等待）");
+            }
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
         }

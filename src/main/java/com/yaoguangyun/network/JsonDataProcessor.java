@@ -2,6 +2,7 @@ package com.yaoguangyun.network;
 
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
+import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.reflect.TypeToken;
 import com.yaoguangyun.device.DeviceInfo;
@@ -47,10 +48,13 @@ public class JsonDataProcessor {
         cardMessage.setBasic(basicInfo);
         cardMessage.setOp(operationType);
 
-        // 添加数据
+        // 添加数据（null 值跳过：Map<String,String> 的值被 Gson 写成 JSON null 时，
+        // 部分服务端反序列化器会把它当作协议错误；与 addDeviceInfoToCard 的过滤策略保持一致）
         if (data != null) {
             for (Map.Entry<String, String> entry : data.entrySet()) {
-                cardMessage.putData(entry.getKey(), entry.getValue());
+                if (entry.getValue() != null) {
+                    cardMessage.putData(entry.getKey(), entry.getValue());
+                }
             }
         }
 
@@ -101,7 +105,13 @@ public class JsonDataProcessor {
 
         if (deviceInfo != null) {
             basicInfo.setAndroidId(deviceInfo.getAndroidId());
-            basicInfo.setStatusMachine(deviceInfo.getBrand() + "(" + deviceInfo.getModel() + ")");
+            // null 品牌/型号不能直接拼接：会产生字面量 "null(null)"（构造器把 null 归一为 ""）。
+            // 品牌与型号都缺失时 statusMachine 留空，避免发送无意义的占位值。
+            String brand = deviceInfo.getBrand();
+            String model = deviceInfo.getModel();
+            if (brand != null || model != null) {
+                basicInfo.setStatusMachine((brand != null ? brand : "") + "(" + (model != null ? model : "") + ")");
+            }
         }
         return basicInfo;
     }
@@ -218,34 +228,42 @@ public class JsonDataProcessor {
         if (deviceInfo == null) {
             return;
         }
-        
-        // 添加基本设备信息
-        cardMessage.putData("brand", deviceInfo.getBrand());
-        cardMessage.putData("model", deviceInfo.getModel());
-        cardMessage.putData("device", deviceInfo.getDevice());
-        cardMessage.putData("manufacturer", deviceInfo.getManufacturer());
-        
+
+        // 添加基本设备信息（null 值统一跳过，保持与 latitude/longitude 一致的过滤策略）
+        putIfNotNull(cardMessage, "brand", deviceInfo.getBrand());
+        putIfNotNull(cardMessage, "model", deviceInfo.getModel());
+        putIfNotNull(cardMessage, "device", deviceInfo.getDevice());
+        putIfNotNull(cardMessage, "manufacturer", deviceInfo.getManufacturer());
+
         // 添加系统信息
-        cardMessage.putData("release", deviceInfo.getRelease());
-        cardMessage.putData("sdk_int", deviceInfo.getSdkInt());
-        cardMessage.putData("build_id", deviceInfo.getBuildID());
-        
+        putIfNotNull(cardMessage, "release", deviceInfo.getRelease());
+        putIfNotNull(cardMessage, "sdk_int", deviceInfo.getSdkInt());
+        putIfNotNull(cardMessage, "build_id", deviceInfo.getBuildID());
+
         // 添加屏幕信息
-        cardMessage.putData("width_pixels", deviceInfo.getWidthPixels());
-        cardMessage.putData("height_pixels", deviceInfo.getHeightPixels());
-        cardMessage.putData("density", deviceInfo.getDensity());
-        
+        putIfNotNull(cardMessage, "width_pixels", deviceInfo.getWidthPixels());
+        putIfNotNull(cardMessage, "height_pixels", deviceInfo.getHeightPixels());
+        putIfNotNull(cardMessage, "density", deviceInfo.getDensity());
+
         // 添加网络信息
-        cardMessage.putData("mac_address", deviceInfo.getMacAddress());
-        cardMessage.putData("ip_address", deviceInfo.getIpAddress());
-        cardMessage.putData("network_type", deviceInfo.getNetworkType());
-        
+        putIfNotNull(cardMessage, "mac_address", deviceInfo.getMacAddress());
+        putIfNotNull(cardMessage, "ip_address", deviceInfo.getIpAddress());
+        putIfNotNull(cardMessage, "network_type", deviceInfo.getNetworkType());
+
         // 添加位置信息
-        if (deviceInfo.getLatitude() != null) {
-            cardMessage.putData("latitude", deviceInfo.getLatitude());
-        }
-        if (deviceInfo.getLongitude() != null) {
-            cardMessage.putData("longitude", deviceInfo.getLongitude());
+        putIfNotNull(cardMessage, "latitude", deviceInfo.getLatitude());
+        putIfNotNull(cardMessage, "longitude", deviceInfo.getLongitude());
+    }
+
+    /**
+     * 仅当值非 null 时写入数据映射。
+     *
+     * <p>写入 null 会让 Gson 在 JSON 中产出 {@code "key":null}，部分服务端反序列化器
+     * 对此按协议错误处理；因此 null 字段直接省略，与缺失字段在语义上无法区分开。</p>
+     */
+    private static void putIfNotNull(CardProtobufMessage cardMessage, String key, String value) {
+        if (value != null) {
+            cardMessage.putData(key, value);
         }
     }
     
@@ -292,21 +310,22 @@ public class JsonDataProcessor {
     
     /**
      * 提取JSON字段值
-     * 
+     *
      * @param json JSON字符串
      * @param fieldName 字段名
-     * @return 字段值
+     * @return 字段值（字符串形式的原始值）；键不存在、值为 null 或值为对象/数组时返回 null
      */
     public static String extractField(String json, String fieldName) {
-        try {
-            JsonObject jsonObject = GsonUtils.toJsonObject(json);
-            if (jsonObject != null && jsonObject.has(fieldName)) {
-                return jsonObject.get(fieldName).getAsString();
-            }
-        } catch (Exception e) {
-            System.err.println("提取字段失败: " + e);
+        JsonObject jsonObject = GsonUtils.toJsonObject(json);
+        if (jsonObject == null || !jsonObject.has(fieldName)) {
+            return null;
         }
-        return null;
+        JsonElement element = jsonObject.get(fieldName);
+        if (element.isJsonNull() || !element.isJsonPrimitive()) {
+            // 对象/数组没有字符串表示，不是异常而是「不可提取」
+            return null;
+        }
+        return element.getAsString();
     }
     
     /**

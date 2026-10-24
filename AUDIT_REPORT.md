@@ -294,4 +294,47 @@ java -jar ... zzz                -> 退出码 1
 mvn dependency:analyze           -> 无 unused / undeclared
 ```
 
+---
+
+## 九、第三轮排查（残留缺陷清扫）
+
+> 方式：全量通读 29 个源文件 + 独立探针程序逐条实证（探针目录已清理，不留临时文件）。
+> 基线：第二轮结束后 `mvn test` 36 用例全绿。本轮结束后 42 用例全绿。
+
+### 发现并修复
+
+| 编号 | 问题 | 级别 | 位置 | 修复 |
+|------|------|------|------|------|
+| R-1 | `buildBasicDeviceInfo` 对 null 品牌/型号做字符串拼接，线上载荷出现字面量 `"null(null)"`（探针实证） | Medium | `JsonDataProcessor.buildBasicDeviceInfo` | null 分开判断；两者皆缺时 statusMachine 留空 |
+| R-2 | `addDeviceInfoToCard` 对 17 个字段无条件 `putData(key, null)`（仅 lat/long 有保护，策略不一致）；`buildVerifyRequest` 对调用方 data map 的 null 值同样直写 | Medium | `JsonDataProcessor` | 统一 `putIfNotNull` 过滤；null 值省略而非写出 JSON null |
+| R-3 | `HutoolExample` 裸调无超时 `HttpUtil.get/post`（正是 H-5 的遗漏面，且 Main 默认入口会执行）；RSA 示例用无参 `new RSA()`（1024 位，违反项目 2048 位策略） | Medium | `HutoolExample` | 全部改为 `.timeout(5000)`；显式 `generateKeyPair("RSA", 2048)` |
+| R-4 | `NetworkExample.testTcpConnection` 用 `Thread.sleep(2000)` 等异步回调（竞态：回调可能没发生就退出，或白等 2 秒） | Low | `NetworkExample` | 改 `CountDownLatch` + 10 秒超时 |
+| R-6 | `setDeviceInfo` 只认 snake_case 键，传入 Java 字段名（`androidId`）直接抛「未知字段」；`getDeviceInfo(key)` 同样不支持 | Low | `DeviceInfoManager` | 键查找回退匹配 Java 字段名；get/set 对称支持别名 |
+| R-8 | `extractField` 对对象/数组字段靠「抛异常→catch→stderr 噪音」实现返回 null | Low | `JsonDataProcessor.extractField` | 改为类型判断静默返回 null（非基本类型=不可提取） |
+
+### 探针明确排除的假设（避免重复排查）
+
+| 假设 | 结论 |
+|------|------|
+| `Double.toString` 会让设备经纬度出现科学计数法 | **无风险**。DeviceInfo 字段全部是 String，`DeviceInfoManager` 写入的是字面量 `"39.9042"`，不经 `Double.toString` 路径 |
+| `collectDeviceInfo` 不重置字段导致旧值残留 | **假**。覆盖全部 69 字段，污染后再 collect 会复位（探针 P6） |
+| `mergeJson("[1]","{}")` 等非对象输入有隐藏行为 | 符合 javadoc 契约（obj1 为 null 时返回 json2） |
+| `TcpMessageType.getType(未知值)` 返回 UNKNOWN 会误判 | 设计如此：服务端回未知类型 = 协议错误，报 `Message Type Fail` 是正确行为 |
+| `RSA_CIPHERTEXT_BASE64_LENGTH` 计算有误 | **干净**。探针实测 256 字节模长 → 344，与内置公钥一致 |
+| Gson 对 `" "` 空白串的 `fromJson` 行为 | 返回 null 且不打 stderr——宽松模式的 StringReader peek 返回 STRING 而非 END_DOCUMENT，语义可接受 |
+
+### 有意保留（与第二轮取舍一致，未变）
+
+- `buildHeartbeatRequest` 复用 `CardOperationType.Verify`（协议枚举无心跳值，不凭空发明）
+- `app_key` 历史凭据仍留在源码/配置（支持 `YAOGUANGYUN_APP_KEY` 注入，轮换由业务侧决定）
+- `com.yaoguangyun.test` 仍在主源码集（Main CLI 依赖）
+
+### 第三轮后的最终状态
+
+```
+mvn clean test   -> Tests run: 42, Failures: 0, Errors: 0（新增 6 个回归用例）
+mvn clean package -> BUILD SUCCESS；target/lib 仅 5 个运行时依赖（无 junit/hamcrest）
+Main test 自检    -> 18/18 通过，退出码 0
+```
+
 

@@ -173,8 +173,11 @@ public class HutoolExample {
         
         // RSA加密
         try {
-            // 使用Hutool的RSA工具
-            cn.hutool.crypto.asymmetric.RSA rsa = new cn.hutool.crypto.asymmetric.RSA();
+            // 使用Hutool的RSA工具：显式 2048 位，与项目密钥策略一致
+            // （无参构造默认 1024 位，低于本项目的安全基线）
+            java.security.KeyPair keyPair = SecureUtil.generateKeyPair("RSA", 2048);
+            cn.hutool.crypto.asymmetric.RSA rsa = new cn.hutool.crypto.asymmetric.RSA(
+                    keyPair.getPrivate(), keyPair.getPublic());
             String publicKey = rsa.getPublicKeyBase64();
             String privateKey = rsa.getPrivateKeyBase64();
             
@@ -195,36 +198,44 @@ public class HutoolExample {
     
     /**
      * HTTP工具示例
+     *
+     * <p>所有请求都必须显式设置超时：Hutool 全局默认是「不超时」，
+     * 对黑洞服务器会永久阻塞（见 HutoolUtils 中 DEFAULT_HTTP_TIMEOUT 的说明）。</p>
      */
     private static void httpExample() {
         System.out.println("--- HTTP工具示例 ---");
-        
+
+        final int timeout = 5000;
         try {
             // GET请求
-            String getResponse = HttpUtil.get("http://httpbin.org/get");
+            String getResponse = HttpUtil.createGet("http://httpbin.org/get")
+                    .timeout(timeout).execute().body();
             System.out.println("GET请求成功: " + (getResponse != null && !getResponse.isEmpty()));
-            
+
             // POST请求
             Map<String, Object> params = new HashMap<>();
             params.put("username", "test");
             params.put("password", "123456");
-            
-            String postResponse = HttpUtil.post("http://httpbin.org/post", params);
+
+            String postResponse = HttpUtil.createPost("http://httpbin.org/post")
+                    .timeout(timeout).form(params).execute().body();
             System.out.println("POST请求成功: " + (postResponse != null && !postResponse.isEmpty()));
-            
+
             // 自定义请求
-            HttpResponse response = HttpRequest.post("http://httpbin.org/post")
+            try (HttpResponse response = HttpRequest.post("http://httpbin.org/post")
+                .timeout(timeout)
                 .header("Content-Type", "application/json")
                 .header("User-Agent", "Hutool-Test/1.0")
                 .body("{\"key\":\"value\"}")
-                .execute();
-            
-            System.out.println("自定义请求成功: " + response.isOk());
-            System.out.println("响应状态码: " + response.getStatus());
+                .execute()) {
+
+                System.out.println("自定义请求成功: " + response.isOk());
+                System.out.println("响应状态码: " + response.getStatus());
+            }
         } catch (Exception e) {
             System.err.println("HTTP请求失败: " + e.getMessage());
         }
-        
+
         System.out.println();
     }
     

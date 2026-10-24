@@ -188,11 +188,26 @@ public class DeviceInfoManager {
     
     /**
      * 获取特定设备信息
-     * @param key 键（snake_case，与 JSON 字段名一致）
+     * @param key 键（snake_case，与 JSON 字段名一致；Java 字段名如 {@code androidId} 也可识别）
      * @return 值
      */
     public synchronized String getDeviceInfo(String key) {
-        return buildDeviceInfoMap().get(key);
+        String value = buildDeviceInfoMap().get(key);
+        if (value != null) {
+            return value;
+        }
+        // snake_case 未命中时尝试 Java 字段名（如 androidId），与 setDeviceInfo 的别名规则对称
+        Field field = findFieldBySerializedName(key);
+        if (field == null) {
+            return null;
+        }
+        try {
+            field.setAccessible(true);
+            Object fieldValue = field.get(deviceInfo);
+            return fieldValue != null ? (String) fieldValue : null;
+        } catch (ReflectiveOperationException e) {
+            return null;
+        }
     }
     
     /**
@@ -204,7 +219,7 @@ public class DeviceInfoManager {
      * 而不是重建对象。否则调用方此前通过 {@link #getDeviceInfo()} 取得的引用会变成
      * 「过期副本」，静默读到旧值。</p>
      *
-     * @param key 键（snake_case，与 JSON 字段名一致）
+     * @param key 键（snake_case，与 JSON 字段名一致；Java 字段名如 {@code androidId} 也可识别）
      * @param value 值
      * @throws IllegalArgumentException 键不是 DeviceInfo 的已知字段
      */
@@ -224,24 +239,31 @@ public class DeviceInfoManager {
     /**
      * 按 JSON 字段名（@SerializedName）查找 DeviceInfo 的字段。
      *
-     * @param serializedName JSON 字段名
+     * <p>键不匹配 @SerializedName 时，回退匹配 Java 字段名（如 {@code androidId}）——
+     * 调用方拿到 getter 后自然会想用同样的名字写回去，直接抛「未知字段」没有帮助。</p>
+     *
+     * @param serializedName JSON 字段名（或 Java 字段名）
      * @return 对应字段；不存在时返回 null
      */
     private static Field findFieldBySerializedName(String serializedName) {
         if (serializedName == null || serializedName.isEmpty()) {
             return null;
         }
+        Field fallback = null;
         for (Field field : DeviceInfo.class.getDeclaredFields()) {
             if (Modifier.isStatic(field.getModifiers())) {
                 continue;
             }
             SerializedName annotation = field.getAnnotation(SerializedName.class);
-            String name = annotation != null ? annotation.value() : field.getName();
+            String name = annotation != null ? annotation.value() : null;
             if (serializedName.equals(name)) {
                 return field;
             }
+            if (fallback == null && serializedName.equals(field.getName())) {
+                fallback = field;
+            }
         }
-        return null;
+        return fallback;
     }
 
     /**

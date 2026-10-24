@@ -526,6 +526,70 @@ public class YaoGuangYunTest {
                 reported.get() instanceof java.util.concurrent.RejectedExecutionException);
     }
 
+    // ==================== 第三轮排查回归（R-1 / R-2 / R-6 / R-8） ====================
+
+    @Test
+    public void nullBrandDoesNotProduceLiteralNullInStatusMachine() {
+        // 品牌与型号均为 null 时，status_machine 不能是 "null(null)"
+        String request = JsonDataProcessor.buildVerifyRequest(new DeviceInfo(), CardOperationType.Verify, null);
+        assertFalse("status_machine 不能含字面量 null", request.contains("null(null)"));
+        assertFalse("status_machine 不能是 \"null\"", request.contains(":\"null\""));
+    }
+
+    @Test
+    public void partiallyNullDeviceFieldsProduceSanitizedStatusMachine() {
+        // 仅型号存在：应输出 "()" 空品牌 + 型号，而不是 "null(SM-G950F)"
+        DeviceInfo partial = new DeviceInfo();
+        partial.setModel("SM-G950F");
+        String request = JsonDataProcessor.buildVerifyRequest(partial, CardOperationType.Verify, null);
+        assertTrue("应包含 (SM-G950F)，实际: " + request,
+                request.contains("(SM-G950F)"));
+    }
+
+    @Test
+    public void nullDeviceFieldsAreOmittedFromDataMap() {
+        // 全 null 设备信息：data 映射不应出现任何值为 null 的键（即 "brand":null）
+        String request = JsonDataProcessor.buildVerifyRequest(new DeviceInfo(), CardOperationType.Verify, null);
+        assertFalse("data 映射不应包含 null 值字段", request.contains("brand\":null"));
+        assertFalse(request.contains("model\":null"));
+        assertFalse(request.contains("sdk_int\":null"));
+    }
+
+    @Test
+    public void nullDataMapValuesAreSkipped() {
+        // 调用方传入的 data map 含 null 值：应跳过而不是写出 JSON null
+        Map<String, String> data = new java.util.HashMap<>();
+        data.put("keep", "v");
+        data.put("drop", null);
+        String request = JsonDataProcessor.buildVerifyRequest(null, CardOperationType.Verify, data);
+        assertTrue(request.contains("\"keep\":\"v\""));
+        assertFalse("null 值应被跳过", request.contains("drop"));
+    }
+
+    @Test
+    public void setAndGetDeviceInfoAcceptCamelCaseAlias() {
+        DeviceInfoManager manager = DeviceInfoManager.getInstance();
+        manager.collectDeviceInfo();
+
+        manager.setDeviceInfo("androidId", "probe-alias");
+        assertEquals("Java 字段名应被 setDeviceInfo 接受",
+                "probe-alias", manager.getDeviceInfo().getAndroidId());
+        assertEquals("getDeviceInfo 也应按 Java 字段名取值",
+                "probe-alias", manager.getDeviceInfo("androidId"));
+
+        // 恢复模拟值，避免影响其他用例
+        manager.setDeviceInfo("androidId", "9774d56d682e549c");
+    }
+
+    @Test
+    public void extractFieldReturnsNullForNonPrimitiveWithoutStderrNoise() {
+        assertNull("对象字段应返回 null", JsonDataProcessor.extractField("{\"a\":{\"b\":1}}", "a"));
+        assertNull("数组字段应返回 null", JsonDataProcessor.extractField("{\"a\":[1]}", "a"));
+        assertEquals("基本类型仍正常提取", "123",
+                JsonDataProcessor.extractField("{\"a\":123}", "a"));
+        assertNull("缺失键返回 null", JsonDataProcessor.extractField("{}", "nope"));
+    }
+
     // ==================== 辅助方法 ====================
 
     private static String readAll(InputStream inputStream) throws IOException {
