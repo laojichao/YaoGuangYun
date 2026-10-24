@@ -100,7 +100,7 @@ mvn exec:java -Dexec.mainClass="com.yaoguangyun.Main" -Dexec.args="server"
 TcpClient tcpClient = new TcpClient();
 String message = "{\"action\":\"test\"}";
 
-tcpClient.sendMessage(message.getBytes(), new TcpResponseCallback() {
+tcpClient.sendMessage(message.getBytes(StandardCharsets.UTF_8), new TcpResponseCallback() {
     @Override
     public void onSuccess(String response) {
         System.out.println("响应: " + response);
@@ -111,6 +111,9 @@ tcpClient.sendMessage(message.getBytes(), new TcpResponseCallback() {
         System.err.println("错误: " + e.getMessage());
     }
 });
+
+// 线程池是静态共享的守护线程池；长时间运行的进程应在收尾时释放
+TcpClient.shutdown();
 ```
 
 ### 2. HTTP 请求
@@ -119,7 +122,10 @@ tcpClient.sendMessage(message.getBytes(), new TcpResponseCallback() {
 HttpClient httpClient = new HttpClient(5000);
 httpClient.addHeader("User-Agent", "Mozilla/5.0");
 
-InputStream response = httpClient.get("http://httpbin.org/get");
+// 返回的流由调用方负责关闭（关闭即释放底层连接）
+try (InputStream response = httpClient.get("http://httpbin.org/get")) {
+    String body = new Scanner(response, "UTF-8").useDelimiter("\\A").next();
+}
 ```
 
 ### 3. 设备信息管理
@@ -160,7 +166,7 @@ String uuid = HutoolUtils.randomUUID();
 // 加密工具
 String md5 = HutoolUtils.md5("Hello");
 
-// HTTP 工具
+// HTTP 工具（内部已设置 5 秒超时，不会永久阻塞）
 String response = HutoolUtils.httpGet("http://httpbin.org/get");
 ```
 
@@ -206,7 +212,7 @@ String response = HutoolUtils.httpGet("http://httpbin.org/get");
 - **README.md** - 项目主文档（本文件）
 - **CLAUDE.md** - 面向 AI 编码助手的项目说明（架构、构建、约定）
 - **HUTOOL_USAGE.md** - Hutool 使用指南
-- **AUDIT_REPORT.md** - 代码全面排查报告：问题清单、修复状态与对抗性复核结论
+- **AUDIT_REPORT.md** - 代码全面排查报告：三轮审计的问题清单、修复状态与对抗性复核结论
 
 ## 测试与自检
 
@@ -218,8 +224,9 @@ mvn test
 java -jar target/YaoGuangYun-1.0.0.jar test
 ```
 
-`mvn test` 当前有 36 个用例，覆盖 RSA 加解密与签名、TCP 响应解码（含压缩炸弹防护）、
-HTTP 重定向语义、DNS 报文边界、Gson 严格校验、设备信息双视图一致性、配置解析容错等。
+`mvn test` 当前有 42 个用例，覆盖 RSA 加解密与签名、TCP 响应解码（含压缩炸弹防护）、
+HTTP 重定向语义、DNS 报文边界、Gson 严格校验、设备信息双视图一致性、配置解析容错、
+请求载荷 null 值过滤（设备字段/调用方数据中 null 直接省略，不会写出 JSON null）等。
 
 ## 注意事项
 
@@ -229,6 +236,9 @@ HTTP 重定向语义、DNS 报文边界、Gson 严格校验、设备信息双视
 4. **依赖管理**: 使用 Maven 管理依赖（Gson 来自 Maven 仓库，仓库内不附带 jar）
 5. **配置**: `config.json` 位于项目根目录，会实际驱动 `ServerConfig`；打包后随 jar 一起发布
 6. **密钥**: `security.app_key` 建议改用环境变量 `YAOGUANGYUN_APP_KEY` 注入，不要提交到仓库
+7. **null 值语义**: 请求载荷构造（`buildVerifyRequest` 等）会**省略** null 的设备字段与调用方数据键，
+   而不是写出 `"key": null`；`DeviceInfoManager.set/getDeviceInfo` 同时接受 snake_case
+   （`android_id`）与 Java 字段名（`androidId`）两种键名
 
 ## 许可证
 

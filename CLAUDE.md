@@ -61,7 +61,7 @@ All source is under `src/main/java/com/yaoguangyun/`. Entry point is `Main.java`
   - `TcpClient` — Custom TCP protocol using a 16-thread daemon pool. Protocol format: `[magic:"Epic"][msgType:4B][compressedLen:4B][gzip data]`. The response body is GZIP-decompressed when it carries a gzip header (plain bodies fall back to raw bytes), and decompression is bounded — a compressed payload that would expand past 64 MB is rejected rather than allowed to exhaust the heap. RSA decryption is attempted only when the payload length exactly matches the configured key's ciphertext length. Call `TcpClient.shutdown()` to release the pool; `sendMessage` reports a shut-down pool through `onError` instead of throwing.
   - `HttpClient` — `HttpURLConnection`-based with manual redirect handling, custom headers, and a content-length aware stream wrapper. 307/308 redirects preserve method and body, 301/302/303 downgrade to GET; `network.max_redirects` counts redirects followed (so `0` means "don't follow redirects" and still allows the initial request). Every non-stream exit path disconnects the connection.
   - `ServerConfig` — Loads server address, ports, timeouts, buffer size, RSA public key, app key and cache flag from `config.json`, with environment-variable overrides and hardcoded fallbacks.
-  - `JsonDataProcessor` — Builds request JSON (`CardProtobufMessage` with device info), parses server responses, and provides JSON merge/extract utilities via Gson.
+  - `JsonDataProcessor` — Builds request JSON (`CardProtobufMessage` with device info), parses server responses, and provides JSON merge/extract utilities via Gson. Null device fields and null data-map values are **omitted** (never emitted as `"key": null`); `extractField` returns null for non-primitive values instead of throwing.
   - `HttpsDnsClient` — DNS-over-HTTPS resolver (opt-in; the TCP client uses the JVM's default resolver).
   - `TcpMessageType` — Enum defining TCP message types (verify, heartbeat, etc.). **The single definition lives here** — an earlier duplicate in `proto/` had conflicting numeric values and was removed.
 
@@ -74,7 +74,7 @@ All source is under `src/main/java/com/yaoguangyun/`. Entry point is `Main.java`
 
 - **device/** — Device info simulation
   - `DeviceInfo` — POJO with 69 Android device fields (brand, model, network, GPS, screen, SIM, etc.), all mapped to snake_case JSON names via `@SerializedName`.
-  - `DeviceInfoManager` — Singleton that populates `DeviceInfo` with Samsung Galaxy S8 mock data. The `DeviceInfo` object is the single source of truth; `getDeviceInfoMap()` derives its keys from `@SerializedName`, so the map view and the JSON view never disagree.
+  - `DeviceInfoManager` — Singleton that populates `DeviceInfo` with Samsung Galaxy S8 mock data. The `DeviceInfo` object is the single source of truth; `getDeviceInfoMap()` derives its keys from `@SerializedName`, so the map view and the JSON view never disagree. `set/getDeviceInfo` accept both snake_case (`android_id`) and Java field names (`androidId`).
 
 - **util/** — Utilities
   - `RsaEncryptUtils` — RSA encrypt/decrypt plus real signatures (`sign`/`verify`, SHA256withRSA). Single-block encryption is capped at 245 bytes for a 2048-bit key and throws `IllegalArgumentException` beyond that.
