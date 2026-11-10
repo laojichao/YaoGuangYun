@@ -210,7 +210,7 @@ String response = HutoolUtils.httpGet("http://httpbin.org/get");
 ## 文档说明
 
 - **README.md** - 项目主文档（本文件）
-- **CLAUDE.md** - 面向 AI 编码助手的项目说明（架构、构建、约定）
+- **AGENTS.md** - 面向 AI 编码助手的项目说明（架构、构建、约定）
 - **HUTOOL_USAGE.md** - Hutool 使用指南
 - **AUDIT_REPORT.md** - 代码全面排查报告：三轮审计的问题清单、修复状态与对抗性复核结论
 

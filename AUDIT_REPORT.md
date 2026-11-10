@@ -49,7 +49,7 @@
 - **证据**：`-P java17` 下 `maven.compiler.target` 求值为 `17`，但产物 `Main.class` 的
   `major version: 52`（Java 8），编译日志恒为 `target 1.8`。
   插件 `<configuration><source>1.8</source><target>1.8</target></configuration>` 覆盖了 profile 设置的属性。
-- **后果**：`CLAUDE.md` 宣称的「Profiles available for Java 11 and 17」是假的。
+- **后果**：`AGENTS.md` 宣称的「Profiles available for Java 11 and 17」是假的。
 
 ### H-3 「签名/验证」不是签名，且没有返回 false 的 verify
 - **位置**：`util/RsaEncryptUtils.java:144-200`（javadoc 声明见 `:27`）
@@ -153,7 +153,7 @@
 - **M-22 `Main` 从不传递失败**（同 H-8）：任何模式退出码恒为 0。
 - **M-23 `hutool-socket` 声明但从未 import**（`pom.xml:62-67`）：`dependency:analyze` 报警，且被拉进 `target/lib` 与 manifest `Class-Path`。
 - **M-24 已提交的 `lib/gson-2.10.1.jar` 不在任何 classpath 上**：Maven 从 `~/.m2` 解析；
-  且与 `CLAUDE.md:78`「local jar in `lib/`」的说法矛盾。
+  且与 `AGENTS.md:78`「local jar in `lib/`」的说法矛盾。
 
 ---
 
@@ -161,7 +161,7 @@
 
 - **死代码/重复**：`proto/TcpMessageType`（**数值与 network 版全部错位**：VERIFY 0 vs 1、HEARTBEAT 1 vs 2、DATA 2 vs 3，且无任何引用）；
   `proto/ProtobufMessage`、`proto/DnsMessage`、`proto/RequestDataMap`、`util/HutoolUtils` 均无外部引用，
-  但 `CLAUDE.md` 仍把 `ProtobufMessage` 描述为「Top-level message wrapper」（实际发送的是未包装的 `CardProtobufMessage`）。
+  但 `AGENTS.md` 仍把 `ProtobufMessage` 描述为「Top-level message wrapper」（实际发送的是未包装的 `CardProtobufMessage`）。
 - **`DeviceInfo` 缺 `equals`/`hashCode`/`toString`**，而同层 POJO 全都有。
 - **`TcpClient`**：`resolveDns` 是死代码且吞异常；字段 `HTTP_PORT` 赋值后从未使用；线程池 `public static final` 从不 shutdown；
   `onSuccess` 抛异常会被 catch 成 `onError`（双重回调）。
@@ -222,7 +222,7 @@
 | M-21 | config.json 不驱动运行时 | ✅ | `ServerConfig` 启动时加载 config.json，支持环境变量覆盖；打包进 jar |
 | M-23 / M-24 | 依赖与残留 jar | ✅ | `dependency:analyze` 无 unused；`lib/gson-2.10.1.jar` 已删除 |
 | BUILD-6 | `exec:java` 线程泄漏告警 | ✅ | `NetworkTest` 结束时 `TcpClient.shutdown()`，告警消失 |
-| Low 全部 | 死代码/文档/卫生 | ✅ | 删除重复的 `proto/TcpMessageType`；`.gitignore` 补项；README/CLAUDE.md/HUTOOL_USAGE.md 与实现对齐 |
+| Low 全部 | 死代码/文档/卫生 | ✅ | 删除重复的 `proto/TcpMessageType`；`.gitignore` 补项；README/AGENTS.md/HUTOOL_USAGE.md 与实现对齐 |
 
 ### 验证方式
 
