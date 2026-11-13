@@ -27,6 +27,8 @@
         <gson.version>2.10.1</gson.version>
         <hutool.version>5.8.22</hutool.version>
         <junit.version>4.13.2</junit.version>
+        <!-- exec:java 的默认主类；可用 -Dexec.mainClass=... 覆盖 -->
+        <exec.mainClass>com.yaoguangyun.Main</exec.mainClass>
     </properties>
 
     <dependencies>
@@ -151,6 +153,20 @@
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-surefire-plugin</artifactId>
                 <version>3.1.2</version>
+                <configuration>
+                    <!-- 64MB 解压上限用例需要稳定堆；不依赖机器默认值 -->
+                    <argLine>-Xmx256m</argLine>
+                </configuration>
+            </plugin>
+
+            <!-- 运行入口：固定版本，避免依赖 Maven 的插件前缀解析 -->
+            <plugin>
+                <groupId>org.codehaus.mojo</groupId>
+                <artifactId>exec-maven-plugin</artifactId>
+                <version>3.1.0</version>
+                <configuration>
+                    <mainClass>${exec.mainClass}</mainClass>
+                </configuration>
             </plugin>
 
             <!-- 依赖分析插件 -->
@@ -244,6 +260,18 @@
             <id>aliyun-plugin</id>
             <name>阿里云插件仓库</name>
             <url>https://maven.aliyun.com/repository/public</url>
+            <releases>
+                <enabled>true</enabled>
+            </releases>
+            <snapshots>
+                <enabled>false</enabled>
+            </snapshots>
+        </pluginRepository>
+        <!-- 插件仓库的 Central 回退，与依赖仓库保持一致 -->
+        <pluginRepository>
+            <id>central-plugin</id>
+            <name>Central Repository</name>
+            <url>https://repo.maven.apache.org/maven2</url>
             <releases>
                 <enabled>true</enabled>
             </releases>

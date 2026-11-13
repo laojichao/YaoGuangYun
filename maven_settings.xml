@@ -16,13 +16,11 @@
             <mirrorOf>central</mirrorOf>
         </mirror>
         
-        <!-- 华为云镜像 -->
-        <mirror>
-            <id>huaweicloud</id>
-            <name>华为云Maven镜像</name>
-            <url>https://repo.huaweicloud.com/repository/maven/</url>
-            <mirrorOf>central</mirrorOf>
-        </mirror>
+        <!--
+          注意：Maven 对同一个 mirrorOf 只会使用第一个匹配的镜像，
+          因此这里不再并列声明第二个 central 镜像（原华为云配置是死配置）。
+          如需切换镜像，请替换上面的阿里云 mirror。
+        -->
     </mirrors>
     
     <!-- 仓库配置 -->

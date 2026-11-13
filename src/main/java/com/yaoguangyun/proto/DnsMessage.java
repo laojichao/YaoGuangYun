@@ -27,7 +27,19 @@ public class DnsMessage {
      * @param properties 属性映射
      */
     public DnsMessage(Map<String, String> properties) {
-        this.properties = properties != null ? new HashMap<>(properties) : new HashMap<>();
+        this.properties = copyNonNullEntries(properties);
+    }
+
+    private static Map<String, String> copyNonNullEntries(Map<String, String> source) {
+        Map<String, String> copy = new HashMap<>();
+        if (source != null) {
+            for (Map.Entry<String, String> entry : source.entrySet()) {
+                if (entry.getKey() != null && entry.getValue() != null) {
+                    copy.put(entry.getKey(), entry.getValue());
+                }
+            }
+        }
+        return copy;
     }
     
     /**
@@ -40,7 +52,11 @@ public class DnsMessage {
      */
     public Map<String, String> getProperties() {
         if (properties == null) {
-            properties = new HashMap<>();
+            synchronized (this) {
+                if (properties == null) {
+                    properties = new HashMap<>();
+                }
+            }
         }
         return properties;
     }
@@ -50,7 +66,7 @@ public class DnsMessage {
      * @param properties 属性映射
      */
     public void setProperties(Map<String, String> properties) {
-        this.properties = properties != null ? new HashMap<>(properties) : new HashMap<>();
+        this.properties = copyNonNullEntries(properties);
     }
     
     /**
@@ -58,7 +74,13 @@ public class DnsMessage {
      * @return 属性数量
      */
     public int getPropertiesCount() {
-        return getProperties().size();
+        int count = 0;
+        for (String value : getProperties().values()) {
+            if (value != null) {
+                count++;
+            }
+        }
+        return count;
     }
     
     /**
@@ -67,7 +89,7 @@ public class DnsMessage {
      * @return 是否包含
      */
     public boolean containsProperty(String key) {
-        return getProperties().containsKey(key);
+        return getProperties().get(key) != null;
     }
     
     /**
@@ -86,7 +108,8 @@ public class DnsMessage {
      * @return 属性值
      */
     public String getPropertyOrDefault(String key, String defaultValue) {
-        return getProperties().getOrDefault(key, defaultValue);
+        String value = getProperties().get(key);
+        return value != null ? value : defaultValue;
     }
     
     /**
@@ -95,6 +118,9 @@ public class DnsMessage {
      * @param value 值
      */
     public void setProperty(String key, String value) {
+        if (key == null || value == null) {
+            throw new IllegalArgumentException("key/value 不能为 null；删除请使用 removeProperty");
+        }
         getProperties().put(key, value);
     }
     

@@ -82,9 +82,9 @@ public final class ServerConfig {
             return;
         }
 
-        serverIp = parser.getString("server.ip", DEFAULT_SERVER_IP);
-        tcpPort = requirePositive(parser.getInt("server.tcp_port", DEFAULT_TCP_PORT), "server.tcp_port", DEFAULT_TCP_PORT);
-        httpPort = requirePositive(parser.getInt("server.http_port", DEFAULT_HTTP_PORT), "server.http_port", DEFAULT_HTTP_PORT);
+        serverIp = requireNonBlank(parser.getString("server.ip", DEFAULT_SERVER_IP), "server.ip", DEFAULT_SERVER_IP);
+        tcpPort = requirePort(parser.getInt("server.tcp_port", DEFAULT_TCP_PORT), "server.tcp_port", DEFAULT_TCP_PORT);
+        httpPort = requirePort(parser.getInt("server.http_port", DEFAULT_HTTP_PORT), "server.http_port", DEFAULT_HTTP_PORT);
         timeout = requirePositive(parser.getInt("server.timeout", DEFAULT_TIMEOUT), "server.timeout", DEFAULT_TIMEOUT);
         connectTimeout = requirePositive(parser.getInt("network.connect_timeout", timeout), "network.connect_timeout", timeout);
         readTimeout = requirePositive(parser.getInt("network.read_timeout", timeout), "network.read_timeout", timeout);
@@ -124,6 +124,29 @@ public final class ServerConfig {
     }
 
     /**
+     * 校验端口号在 1..65535 范围内。
+     */
+    private static int requirePort(int value, String key, int fallback) {
+        if (value >= 1 && value <= 65535) {
+            return value;
+        }
+        System.err.println("[ServerConfig] 配置项 " + key + " 必须是 1..65535 的端口，实际为 " + value
+                + "，回退到 " + fallback);
+        return fallback;
+    }
+
+    /**
+     * 校验字符串非空白；空主机名会被 InetSocketAddress 解析成回环地址，必须显式拒绝。
+     */
+    private static String requireNonBlank(String value, String key, String fallback) {
+        if (value != null && !value.trim().isEmpty()) {
+            return value.trim();
+        }
+        System.err.println("[ServerConfig] 配置项 " + key + " 不能为空，回退到 " + fallback);
+        return fallback;
+    }
+
+    /**
      * 解析配置文件路径：系统属性 → 环境变量 → 工作目录 → classpath。
      *
      * @return 可用的配置文件路径；都不可用时返回 null（此时使用内置默认值）
@@ -158,9 +181,9 @@ public final class ServerConfig {
      * 环境变量覆盖：便于把密钥从源码与仓库中移出。
      */
     private static void applyEnvironmentOverrides() {
-        serverIp = envOr("YAOGUANGYUN_SERVER_IP", serverIp);
-        tcpPort = envIntOr("YAOGUANGYUN_TCP_PORT", tcpPort);
-        httpPort = envIntOr("YAOGUANGYUN_HTTP_PORT", httpPort);
+        serverIp = requireNonBlank(envOr("YAOGUANGYUN_SERVER_IP", serverIp), "YAOGUANGYUN_SERVER_IP", serverIp);
+        tcpPort = requirePort(envIntOr("YAOGUANGYUN_TCP_PORT", tcpPort), "YAOGUANGYUN_TCP_PORT", tcpPort);
+        httpPort = requirePort(envIntOr("YAOGUANGYUN_HTTP_PORT", httpPort), "YAOGUANGYUN_HTTP_PORT", httpPort);
         rsaPublicKey = envOr("YAOGUANGYUN_RSA_PUBLIC_KEY", rsaPublicKey);
         appKey = envOr("YAOGUANGYUN_APP_KEY", appKey);
     }

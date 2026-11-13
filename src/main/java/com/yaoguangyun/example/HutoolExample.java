@@ -12,6 +12,7 @@ import cn.hutool.http.HttpResponse;
 import cn.hutool.http.HttpUtil;
 import cn.hutool.json.JSONObject;
 import cn.hutool.json.JSONUtil;
+import com.yaoguangyun.test.SimpleHttpServer;
 
 import java.nio.charset.StandardCharsets;
 import java.security.KeyPair;
@@ -29,8 +30,9 @@ public class HutoolExample {
     /**
      * 运行所有示例
      */
-    public static void runExamples() {
+    public static int runExamples() {
         System.out.println("=== Hutool使用示例 ===\n");
+        int failures = 0;
         
         // 1. 字符串工具示例
         stringExample();
@@ -51,12 +53,15 @@ public class HutoolExample {
         cryptoExample();
         
         // 7. HTTP工具示例
-        httpExample();
+        if (!httpExample()) {
+            failures++;
+        }
         
         // 8. JSON工具示例
         jsonExample();
         
         System.out.println("=== Hutool示例完成 ===\n");
+        return failures;
     }
     
     /**
@@ -202,27 +207,41 @@ public class HutoolExample {
      * <p>所有请求都必须显式设置超时：Hutool 全局默认是「不超时」，
      * 对黑洞服务器会永久阻塞（见 HutoolUtils 中 DEFAULT_HTTP_TIMEOUT 的说明）。</p>
      */
-    private static void httpExample() {
+    private static boolean httpExample() {
         System.out.println("--- HTTP工具示例 ---");
 
         final int timeout = 5000;
+        SimpleHttpServer server = new SimpleHttpServer(0);
+        boolean ok = true;
         try {
-            // GET请求
-            String getResponse = HttpUtil.createGet("http://httpbin.org/get")
-                    .timeout(timeout).execute().body();
-            System.out.println("GET请求成功: " + (getResponse != null && !getResponse.isEmpty()));
+            server.start();
+            String base = "http://" + server.getBoundAddress().getAddress().getHostAddress()
+                    + ":" + server.getBoundPort();
+
+            // GET请求（try-with-resources：HttpResponse 必须 close）
+            try (HttpResponse response = HttpUtil.createGet(base + "/api/test")
+                    .timeout(timeout).execute()) {
+                String body = response.body();
+                boolean success = response.isOk() && body != null && !body.isEmpty();
+                System.out.println("GET请求成功: " + success);
+                ok &= success;
+            }
 
             // POST请求
             Map<String, Object> params = new HashMap<>();
             params.put("username", "test");
             params.put("password", "123456");
 
-            String postResponse = HttpUtil.createPost("http://httpbin.org/post")
-                    .timeout(timeout).form(params).execute().body();
-            System.out.println("POST请求成功: " + (postResponse != null && !postResponse.isEmpty()));
+            try (HttpResponse response = HttpUtil.createPost(base + "/api/echo")
+                    .timeout(timeout).form(params).execute()) {
+                String body = response.body();
+                boolean success = response.isOk() && body != null && !body.isEmpty();
+                System.out.println("POST请求成功: " + success);
+                ok &= success;
+            }
 
             // 自定义请求
-            try (HttpResponse response = HttpRequest.post("http://httpbin.org/post")
+            try (HttpResponse response = HttpRequest.post(base + "/api/echo")
                 .timeout(timeout)
                 .header("Content-Type", "application/json")
                 .header("User-Agent", "Hutool-Test/1.0")
@@ -231,12 +250,28 @@ public class HutoolExample {
 
                 System.out.println("自定义请求成功: " + response.isOk());
                 System.out.println("响应状态码: " + response.getStatus());
+                ok &= response.isOk();
             }
         } catch (Exception e) {
-            System.err.println("HTTP请求失败: " + e.getMessage());
+            System.err.println("HTTP请求失败: " + describe(e));
+            ok = false;
+        } finally {
+            server.stop();
         }
 
         System.out.println();
+        return ok;
+    }
+
+    /**
+     * 描述异常：getMessage() 为 null 时给出类名，避免打印「失败: null」。
+     */
+    private static String describe(Throwable e) {
+        if (e == null) {
+            return "null";
+        }
+        String message = e.getMessage();
+        return (message == null || message.isEmpty()) ? e.getClass().getSimpleName() + "(无消息)" : message;
     }
     
     /**

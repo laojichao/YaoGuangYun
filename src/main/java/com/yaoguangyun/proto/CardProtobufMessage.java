@@ -52,8 +52,37 @@ public class CardProtobufMessage {
      */
     public CardProtobufMessage(BasicDeviceInfo basic, CardOperationType op, Map<String, String> data) {
         this.basic = basic;
-        this.op = op != null ? op : DEFAULT_OP;
-        this.data = data != null ? new HashMap<>(data) : new HashMap<>();
+        this.op = normalizeOp(op);
+        this.data = copyNonNullEntries(data);
+    }
+
+    /**
+     * 归一化操作类型：null 回退默认值，哨兵 UNRECOGNIZED 拒绝（它不是可上线的协议值）。
+     */
+    private static CardOperationType normalizeOp(CardOperationType op) {
+        if (op == null) {
+            return DEFAULT_OP;
+        }
+        if (op == CardOperationType.UNRECOGNIZED) {
+            throw new IllegalArgumentException("UNRECOGNIZED 不是合法的操作类型");
+        }
+        return op;
+    }
+
+    /**
+     * 复制数据映射并过滤 null 键/值：Gson 默认序列化会丢弃 null 值，
+     * 保留它们会让内存视图与线上视图不一致。
+     */
+    private static Map<String, String> copyNonNullEntries(Map<String, String> source) {
+        Map<String, String> copy = new HashMap<>();
+        if (source != null) {
+            for (Map.Entry<String, String> entry : source.entrySet()) {
+                if (entry.getKey() != null && entry.getValue() != null) {
+                    copy.put(entry.getKey(), entry.getValue());
+                }
+            }
+        }
+        return copy;
     }
     
     /**
@@ -98,7 +127,7 @@ public class CardProtobufMessage {
      * @param op 操作类型
      */
     public void setOp(CardOperationType op) {
-        this.op = op != null ? op : DEFAULT_OP;
+        this.op = normalizeOp(op);
     }
 
     /**
@@ -128,8 +157,14 @@ public class CardProtobufMessage {
      * @return 数据映射
      */
     public Map<String, String> getData() {
+        // Gson 反序列化会绕过构造函数直接写字段；这里做双检锁惰性初始化。
+        // 返回的是内部可变视图，调用方若跨线程修改需自行同步。
         if (data == null) {
-            data = new HashMap<>();
+            synchronized (this) {
+                if (data == null) {
+                    data = new HashMap<>();
+                }
+            }
         }
         return data;
     }
@@ -139,7 +174,7 @@ public class CardProtobufMessage {
      * @param data 数据映射
      */
     public void setData(Map<String, String> data) {
-        this.data = data != null ? new HashMap<>(data) : new HashMap<>();
+        this.data = copyNonNullEntries(data);
     }
 
     /**
@@ -147,7 +182,13 @@ public class CardProtobufMessage {
      * @return 数据数量
      */
     public int getDataCount() {
-        return getData().size();
+        int count = 0;
+        for (String value : getData().values()) {
+            if (value != null) {
+                count++;
+            }
+        }
+        return count;
     }
 
     /**
@@ -155,7 +196,7 @@ public class CardProtobufMessage {
      * @return 数据映射副本
      */
     public Map<String, String> getDataMap() {
-        return new HashMap<>(getData());
+        return copyNonNullEntries(getData());
     }
 
     /**
@@ -164,7 +205,7 @@ public class CardProtobufMessage {
      * @return 是否包含
      */
     public boolean containsData(String key) {
-        return getData().containsKey(key);
+        return getData().get(key) != null;
     }
 
     /**
@@ -174,7 +215,8 @@ public class CardProtobufMessage {
      * @return 数据值
      */
     public String getDataOrDefault(String key, String defaultValue) {
-        return getData().getOrDefault(key, defaultValue);
+        String value = getData().get(key);
+        return value != null ? value : defaultValue;
     }
 
     /**
@@ -197,6 +239,9 @@ public class CardProtobufMessage {
      * @param value 值
      */
     public void putData(String key, String value) {
+        if (key == null || value == null) {
+            throw new IllegalArgumentException("key/value 不能为 null；删除请使用 removeData");
+        }
         getData().put(key, value);
     }
 

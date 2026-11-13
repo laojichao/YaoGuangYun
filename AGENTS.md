@@ -36,16 +36,18 @@ Profiles switch the target: `-P java11`, `-P java17` (they override `maven.compi
 
 ### Configuration
 
-项目配置在根目录 `config.json`，包含以下节:
-- `server` — 服务器地址、端口、超时
-- `device` — 设备信息模拟参数
-- `network` — 连接/读取超时、缓冲区大小、最大重定向次数
-- `security` — RSA 公钥、应用密钥
-- `cache` / `logging` — 缓存和日志设置
-
-`config.json` **会实际驱动运行时**：`ServerConfig` 在类初始化时加载它
+项目配置在根目录 `config.json`。`ServerConfig` 在类初始化时加载它
 （解析路径顺序：系统属性 `yaoguangyun.config` → 环境变量 `YAOGUANGYUN_CONFIG` → 工作目录 `config.json`
-→ jar 内 classpath 资源），缺失时回退到内置默认值。
+→ jar 内 classpath 资源），缺失或非法时回退到内置默认值。
+
+实际驱动运行时的键只有：
+- `server.ip` / `server.tcp_port` / `server.http_port` / `server.timeout`
+- `network.connect_timeout` / `network.read_timeout` / `network.buffer_size` / `network.max_redirects`
+- `security.rsa_public_key`
+- `cache.enabled`
+
+以下键目前没有消费方，保留作为兼容/未来扩展占位：`server.retry_count`、`device.*`、
+`cache.max_size` / `cache.expiration`、`logging.*`、`security.app_key`（仅通过 getter 暴露）。
 
 密钥类配置可用环境变量覆盖，便于把凭据排除在源码之外：
 `YAOGUANGYUN_SERVER_IP`、`YAOGUANGYUN_TCP_PORT`、`YAOGUANGYUN_HTTP_PORT`、
@@ -92,8 +94,9 @@ All source is under `src/main/java/com/yaoguangyun/`. Entry point is `Main.java`
 
 Real JUnit 4 tests live in `src/test/java/com/yaoguangyun/YaoGuangYunTest.java` and run via `mvn test`.
 They are offline and deterministic (they spin up `SimpleHttpServer` on an ephemeral port rather than
-hitting `hc.t60.top`). `mvn exec:java -Dexec.args="test"` runs `NetworkTest`, which counts failures and
-returns them as the process exit code.
+hitting `hc.t60.top`). `mvn exec:java -Dexec.mainClass=com.yaoguangyun.Main -Dexec.args="test"`
+runs `NetworkTest`, which counts failures and returns them as the process exit code.
+The default example is local-only; external probes require `-Dyaoguangyun.external=true`.
 
 ### Key Dependencies
 

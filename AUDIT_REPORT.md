@@ -337,4 +337,64 @@ mvn clean package -> BUILD SUCCESS；target/lib 仅 5 个运行时依赖（无 j
 Main test 自检    -> 18/18 通过，退出码 0
 ```
 
+---
 
+## 十、第四轮排查（残留问题清扫）
+
+> 方式：网络层 / 协议-设备-配置 / CLI-示例-测试-构建 三个子代理并行通读，主代理逐条源码复核；
+> 所有结论均对照当前代码确认，测试新增后全量执行。
+> 基线：第三轮结束时 `mvn test` 42 用例全绿。
+
+### 发现并修复
+
+| 编号 | 级别 | 问题 | 修复 |
+|------|------|------|------|
+| N-1 | High | `HttpClient` 对带 `Content-Encoding` 的 2xx 响应直接返回压缩字节 | gzip/deflate 自动解码；未知编码显式抛 `IOException` |
+| N-2 | High | 重定向目标未校验协议，`ftp:/file:` 触发 `ClassCastException` 并逃出 `throws IOException` | 创建连接前校验 http/https 与 `instanceof HttpURLConnection` |
+| N-3 | High | 跨源重定向把 `Authorization`/`Cookie` 原样转发到任意主机 | 跨源时使用独立请求头副本并剥离敏感头 |
+| N-4 | Medium | `HttpClient(0)` 表示无限等待；负数抛未受检异常 | 构造器拒绝 `timeout <= 0` |
+| N-5 | Medium | 所有 3xx 都按重定向处理，304 报「empty redirect url」 | 仅 301/302/303/307/308 跟随；304 返回空流 |
+| N-6 | Medium | `CardType/CardOperationType.UNRECOGNIZED` 可被序列化/反序列化，随后 `getNumber()` 抛异常 | Adapter 写/读拒绝哨兵，setter 拒绝哨兵 |
+| N-7 | Medium | `ProtobufMessage` 反序列化后 `dataType` 默认 Soft，导致 `getCard()` 恒 null；oneof 两支可同时上线 | 按实际分支推断；setSoft/setCard 互斥 |
+| N-8 | Medium | `CardProtobufMessage/DnsMessage` 接受 null 键/值，内存计数与 JSON 输出不一致 | 写入拒绝 null；读取把 null 视为不存在；计数过滤 |
+| N-9 | Medium | `RsaEncryptUtils.verify(null, ...)` 抛 `RuntimeException`，违背返回 false 的契约 | null/空签名直接返回 false |
+| N-10 | Medium | 所有 RSA 密钥解码拒绝换行/PEM，环境变量注入 PEM 必然失败 | 新增 `decodeKeyMaterial` 剥离 PEM 头尾与空白 |
+| N-11 | Medium | `encryptWithPrivateKey` 缺少 245 字节上限校验，异常类型与 `encrypt` 不一致 | 复用同一容量检查，超限抛 `IllegalArgumentException` |
+| N-12 | Medium | `ServerConfig` 只校验正数，端口可超 65535；环境变量覆盖绕过校验；空 IP 静默指向回环 | `requirePort` + `requireNonBlank`，覆盖环境变量路径 |
+| N-13 | Medium | `JsonConfigParser.getInt/getLong` 静默截断/溢出；`getDouble` 可返回 Infinity | BigDecimal 精确转换 + `Double.isFinite` |
+| N-14 | Low | `setString(null)` NPE；空键写入空键；`ensureParent` 静默覆盖标量/数组 | `requireKey` 校验 + 冲突抛 `IllegalStateException` |
+| N-15 | Low | `getKeys` 返回活视图；`createDefaultConfig(path, null)` 写出 `null` 并返回成功；`merge` 只做浅合并 | 不可变快照 / 拒绝 null / 递归深合并 |
+| N-16 | Low | `GsonUtils.isValidJson("   ")` 返回 true；数值截断；深嵌套 `StackOverflowError` 逃逸 | trim 校验、精确数值、解析边界捕获 SOE |
+| N-17 | Medium | `HttpsDnsClient` 非 200/超限/SERVFAIL 全部返回 null，与 NXDOMAIN 不可区分；不校验 flags/TC/RCODE | 非 200/超限/TC/RCODE 抛 IOException；NXDOMAIN 抛 UnknownHostException |
+| N-18 | Low | DNS 非 ASCII 域名被 `US_ASCII` 静默替换为 `?`；IP 格式化依赖默认 Locale | `IDN.toASCII` + 字符串拼接 |
+| N-19 | Low | `TcpClient` 只捕获 `Exception`，Error 时回调不触发；手工 close 可能覆盖原始异常；线程池无界 | `catch Throwable` + `reportError`；try-with-resources；有界队列 |
+| N-20 | Medium | 全局 TCP 线程池被测试 `shutdown()` 后无法恢复，影响后续用例 | 新增 `TcpClient(ExecutorService)`，测试使用本地池 |
+| N-21 | Medium | `HutoolUtils` 三个 HTTP helper 从不关闭 `HttpResponse`；JSON 契约与 GsonUtils 相反 | try-with-resources；非法 JSON 返回 null |
+| N-22 | Medium | 默认示例访问 hc.t60.top/httpbin.org，失败仍退出 0 并打印「全部完成」 | 默认本地优先；外部开关；`NetworkExample.run()` 返回失败数并由 Main 传递 |
+| N-23 | Medium | `SimpleHttpServer` 端口 0 打印 0、无 `getBoundAddress`、重复启动泄漏、任意方法都 200、超 1MB 直接断连 | 实际地址/端口、幂等 stop、405、413、127.0.0.1 绑定 |
+| N-24 | Low | 多个测试断言空转：回环绑定只断言 port>0、android_id 只断言非空串、RSA 启发式只测反例 | 改为精确断言，并补大响应/304/308/303/405/413 等用例 |
+| N-25 | Low | 无 DNS 解析器测试、无 config.json 真实加载测试、gzip 炸弹测试自身占约 200MB 堆 | 反射 DNS 用例、子 JVM ConfigProbe、流式构造炸弹 |
+| N-26 | Low | `pom` 未固定 exec 插件、无 Central 插件回退、资源目录缺失、surefire 无堆限制 | 固定插件版本、补仓库/目录/`-Xmx256m` |
+| N-27 | Low | README/AGENTS/HUTOOL_USAGE 与实现不符（70+ 参数、config 全量生效、1024 位 RSA、无超时 HTTP） | 全部按实际行为更新，并新增契约变更/生效键表 |
+
+### 第四轮后的最终状态
+
+```
+mvn clean test    -> Tests run: 68, Failures: 0, Errors: 0（新增 26 个回归用例）
+mvn clean package -> BUILD SUCCESS；target/lib 仅 5 个运行时依赖
+java -jar ... test（打包后）-> 18/18 通过，退出码 0
+Main 无参数       -> 仅本地，退出码 0
+Main zzz          -> 退出码 1
+-P java11 / -P java17 / default -> major 55 / 61 / 52
+mvn dependency:analyze -> BUILD SUCCESS
+```
+
+### 本轮新增回归覆盖
+
+- HTTP：gzip/deflate/identity、未知编码、非 http 重定向、304、301/303/308 方法语义、
+  跨源剥离 Authorization、同源保留、大响应完整读取、超时校验、405/413。
+- 协议：`UNRECOGNIZED` 写/读/ setter 拒绝、`ProtobufMessage` oneof 推断、Map null 契约。
+- 加密/配置：验签 null、PEM 密钥、私钥加密容量、JSON 精确数值、配置键校验、深合并、
+  子 JVM 加载 config.json、非法环境变量回退。
+- DNS：截断/合法 A 记录/txid/TC/SERVFAIL/NXDOMAIN、IDN 域名、自定义 DoH URL 校验。
+- TCP：注入 executor 后 shutdown 的 RejectedExecutionException 回调。

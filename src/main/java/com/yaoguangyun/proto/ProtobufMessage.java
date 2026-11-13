@@ -1,5 +1,7 @@
 package com.yaoguangyun.proto;
 
+import com.google.gson.annotations.SerializedName;
+
 /**
  * 协议缓冲消息类
  * 基于bbc.me应用的ProtobufMessage实现
@@ -18,8 +20,11 @@ public class ProtobufMessage {
     public static final int CARD_FIELD_NUMBER = 3;
     
     // 消息字段
+    @SerializedName("dataType")
     private CardType dataType;                    // 数据类型
+    @SerializedName("soft")
     private DnsMessage soft;                      // 软件消息
+    @SerializedName("card")
     private CardProtobufMessage card;             // 卡片消息
     
     /**
@@ -52,7 +57,21 @@ public class ProtobufMessage {
      * @return CardType枚举（非 null）
      */
     public CardType getDataType() {
-        return dataType != null ? dataType : CardType.Soft;
+        // Gson 反序列化会调用无参构造器（dataType 默认 Soft），但不走 setter。
+        // 因此 card 非空而 soft 为空时，必须按实际分支推断，否则 JSON 里的 card 不可达。
+        if (dataType == CardType.Card) {
+            return CardType.Card;
+        }
+        if (dataType == CardType.Soft) {
+            return (soft == null && card != null) ? CardType.Card : CardType.Soft;
+        }
+        if (card != null) {
+            return CardType.Card;
+        }
+        if (soft != null) {
+            return CardType.Soft;
+        }
+        return CardType.Soft;
     }
     
     /**
@@ -60,6 +79,9 @@ public class ProtobufMessage {
      * @param dataType 数据类型
      */
     public void setDataType(CardType dataType) {
+        if (dataType == CardType.UNRECOGNIZED) {
+            throw new IllegalArgumentException("UNRECOGNIZED 不是合法的数据类型");
+        }
         this.dataType = dataType != null ? dataType : CardType.Soft;
     }
     
@@ -100,6 +122,8 @@ public class ProtobufMessage {
     public void setSoft(DnsMessage soft) {
         this.soft = soft;
         if (soft != null) {
+            // 保持 oneof：两个分支不能同时上线
+            this.card = null;
             this.dataType = CardType.Soft;
         }
     }
@@ -127,6 +151,8 @@ public class ProtobufMessage {
     public void setCard(CardProtobufMessage card) {
         this.card = card;
         if (card != null) {
+            // 保持 oneof：两个分支不能同时上线
+            this.soft = null;
             this.dataType = CardType.Card;
         }
     }

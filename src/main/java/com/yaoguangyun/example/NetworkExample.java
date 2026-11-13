@@ -27,7 +27,10 @@ import java.util.Map;
  * 5. 工具类功能
  */
 public class NetworkExample {
-    
+
+    /** 外部探测开关：默认只跑本地确定性示例，避免离线环境白等并刷红字 */
+    private static final String EXTERNAL_PROPERTY = "yaoguangyun.external";
+
     /**
      * 测试TCP连接
      * 
@@ -37,9 +40,13 @@ public class NetworkExample {
      * 3. 发送TCP消息并处理响应
      * 4. 使用回调处理成功和失败情况
      */
-    public static void testTcpConnection() {
+    public static boolean testTcpConnection() {
         System.out.println("\n=== 测试TCP连接 ===");
-        
+        if (!Boolean.getBoolean(EXTERNAL_PROPERTY)) {
+            System.out.println("已跳过外部 TCP 探测（需要 -D" + EXTERNAL_PROPERTY + "=true）");
+            return true;
+        }
+
         // 显示服务器配置
         System.out.println("服务器地址: " + ServerConfig.getServerIp());
         System.out.println("TCP端口: " + ServerConfig.getTcpPort());
@@ -79,6 +86,7 @@ public class NetworkExample {
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
         }
+        return true;
     }
     
     /**
@@ -87,8 +95,9 @@ public class NetworkExample {
      * <p>默认对本地测试服务器发起请求（离线可用、可断言）；
      * 外部服务仅作参考，避免示例在无网络环境下刷出无意义的红字。</p>
      */
-    public static void testHttpRequest() {
+    public static boolean testHttpRequest() {
         System.out.println("\n=== 测试HTTP请求 ===");
+        boolean ok = true;
         
         HttpClient httpClient = new HttpClient(5000);
         httpClient.addHeader("User-Agent", "Mozilla/5.0");
@@ -110,13 +119,16 @@ public class NetworkExample {
                     System.out.println("✓ HTTP请求成功");
                 } catch (IOException e) {
                     System.err.println("✗ HTTP请求失败: " + describe(e));
+                    ok = false;
                 }
             }
         } catch (IOException e) {
             System.err.println("✗ 本地测试服务器启动失败: " + describe(e));
+            ok = false;
         } finally {
             server.stop();
         }
+        return ok;
     }
 
     /**
@@ -164,7 +176,7 @@ public class NetworkExample {
     /**
      * 测试设备信息收集
      */
-    public static void testDeviceInfoCollection() {
+    public static boolean testDeviceInfoCollection() {
         System.out.println("\n=== 测试设备信息收集 ===");
         
         DeviceInfoManager deviceInfoManager = DeviceInfoManager.getInstance();
@@ -180,13 +192,15 @@ public class NetworkExample {
         System.out.println("MAC地址: " + deviceInfo.get("mac_address"));
         System.out.println("IP地址: " + deviceInfo.get("ip_address"));
         System.out.println("网络类型: " + deviceInfo.get("network_type"));
+        return true;
     }
     
     /**
      * 测试RSA加密
      */
-    public static void testRsaEncryption() {
+    public static boolean testRsaEncryption() {
         System.out.println("\n=== 测试RSA加密 ===");
+        boolean ok = true;
         
         String testData = "{\"userId\":\"12345\",\"action\":\"login\"}";
         
@@ -214,6 +228,7 @@ public class NetworkExample {
                 System.out.println("✓ 加密解密测试成功！");
             } else {
                 System.out.println("✗ 加密解密测试失败！");
+                ok = false;
             }
             
             // 数字签名与验签（SHA256withRSA）——这是正确的签名方式
@@ -228,6 +243,7 @@ public class NetworkExample {
                 System.out.println("✓ 签名验证测试成功！");
             } else {
                 System.out.println("✗ 签名验证测试失败！");
+                ok = false;
             }
 
             // 测试使用服务器公钥（仅加密，无法解密）
@@ -240,31 +256,38 @@ public class NetworkExample {
         } catch (Exception e) {
             // 不使用 printStackTrace：示例不应示范把原始栈打印到 stderr 的写法
             System.err.println("RSA加密测试失败: " + describe(e));
+            return false;
         }
+        return ok;
     }
     
     /**
      * 测试工具类
      */
-    public static void testUtils() {
+    public static boolean testUtils() {
         System.out.println("\n=== 测试工具类 ===");
-        
-        // 测试十六进制转换
-        String hex = "48656c6c6f"; // "Hello"的十六进制
-        byte[] bytes = AppUtils.hexToBytes(hex);
-        System.out.println("十六进制转字节: " + AppUtils.bytesToString(bytes));
-        
-        // 测试Base64
-        String base64 = AppUtils.stringToBase64("Hello World");
-        System.out.println("字符串转Base64: " + base64);
-        System.out.println("Base64转字符串: " + AppUtils.base64ToString(base64));
-        
-        // 测试随机字符串生成
-        String randomStr = AppUtils.generateRandomString(10);
-        System.out.println("随机字符串: " + randomStr);
-        
-        String randomNum = AppUtils.generateRandomNumber(8);
-        System.out.println("随机数字: " + randomNum);
+        try {
+            // 测试十六进制转换
+            String hex = "48656c6c6f"; // "Hello"的十六进制
+            byte[] bytes = AppUtils.hexToBytes(hex);
+            System.out.println("十六进制转字节: " + AppUtils.bytesToString(bytes));
+
+            // 测试Base64
+            String base64 = AppUtils.stringToBase64("Hello World");
+            System.out.println("字符串转Base64: " + base64);
+            System.out.println("Base64转字符串: " + AppUtils.base64ToString(base64));
+
+            // 测试随机字符串生成
+            String randomStr = AppUtils.generateRandomString(10);
+            System.out.println("随机字符串: " + randomStr);
+
+            String randomNum = AppUtils.generateRandomNumber(8);
+            System.out.println("随机数字: " + randomNum);
+            return true;
+        } catch (RuntimeException e) {
+            System.err.println("工具类测试失败: " + describe(e));
+            return false;
+        }
     }
     
     /**
@@ -282,37 +305,71 @@ public class NetworkExample {
      * 主方法
      */
     public static void main(String[] args) {
+        int failures = run();
+        // 直接运行示例时把失败数作为退出码；由 Main 调用时不会走到这里
+        if (failures > 0) {
+            System.exit(failures);
+        }
+    }
+
+    /**
+     * 运行完整示例。
+     *
+     * <p>默认只执行本地确定性检查；外部 TCP 探测需要 -Dyaoguangyun.external=true。
+     * 外部探测结果不计入失败数（服务器不可达不代表代码回归）。</p>
+     *
+     * @return 本地检查失败项数量
+     */
+    public static int run() {
         System.out.println("YaoGuangYun 网络请求迁移示例");
         System.out.println("============================");
-        
-        System.out.println("\n注意: 以下测试可能因为服务器不可用而失败，这是正常现象。");
-        System.out.println("项目的主要目的是展示从bbc.me应用迁移过来的代码结构和功能。");
-        
-        // 显示服务器配置
-        showServerConfig();
-        
-        // 测试设备信息收集
-        testDeviceInfoCollection();
-        
-        // 测试工具类
-        testUtils();
-        
-        // 测试RSA加密（使用本地生成的密钥对）
-        testRsaEncryption();
-        
-        // 测试HTTP请求
-        testHttpRequest();
-        
-        // 测试TCP连接
-        testTcpConnection();
-        
-        // 测试Gson功能
-        GsonExample.runExamples();
-        
-        // 测试Hutool功能
-        HutoolExample.runExamples();
-        
+
+        System.out.println("\n默认使用本地测试服务器；外部探测需 -D" + EXTERNAL_PROPERTY + "=true。");
+
+        int failures = 0;
+        try {
+            // 显示服务器配置
+            showServerConfig();
+
+            // 测试设备信息收集
+            if (!testDeviceInfoCollection()) {
+                failures++;
+            }
+
+            // 测试工具类
+            if (!testUtils()) {
+                failures++;
+            }
+
+            // 测试RSA加密（使用本地生成的密钥对）
+            if (!testRsaEncryption()) {
+                failures++;
+            }
+
+            // 测试HTTP请求
+            if (!testHttpRequest()) {
+                failures++;
+            }
+
+            // 测试TCP连接（外部，仅参考）
+            testTcpConnection();
+
+            // 测试Gson功能
+            GsonExample.runExamples();
+
+            // 测试Hutool功能
+            failures += HutoolExample.runExamples();
+
+        } finally {
+            TcpClient.shutdown();
+        }
+
         System.out.println("\n============================");
-        System.out.println("所有测试完成！");
+        if (failures == 0) {
+            System.out.println("示例结束：全部本地检查通过");
+        } else {
+            System.out.println("示例结束：" + failures + " 项本地检查失败");
+        }
+        return failures;
     }
 }

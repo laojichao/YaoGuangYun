@@ -87,6 +87,15 @@ public enum CardType {
     }
 
     /**
+     * 是否为协议中真实存在的取值（哨兵 UNRECOGNIZED 不属于协议值）。
+     *
+     * @return 已知取值返回 true
+     */
+    public boolean isKnown() {
+        return this != UNRECOGNIZED;
+    }
+
+    /**
      * Gson 类型适配器：写出枚举名，读取时兼容枚举名与数值。
      */
     public static class Adapter extends TypeAdapter<CardType> {
@@ -95,6 +104,9 @@ public enum CardType {
         public void write(JsonWriter out, CardType value) throws IOException {
             if (value == null) {
                 out.nullValue();
+            } else if (value == UNRECOGNIZED) {
+                // 哨兵只用于「未知数值」的内存表示，绝不能写入协议报文
+                throw new IllegalArgumentException("不能序列化 CardType.UNRECOGNIZED");
             } else {
                 out.value(value.name());
             }
@@ -124,6 +136,9 @@ public enum CardType {
                 return result;
             }
             String name = in.nextString();
+            if ("UNRECOGNIZED".equals(name)) {
+                throw new JsonSyntaxException("CardType.UNRECOGNIZED 不是合法的协议取值");
+            }
             try {
                 return CardType.valueOf(name);
             } catch (IllegalArgumentException e) {

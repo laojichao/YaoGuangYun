@@ -11,8 +11,10 @@ import java.net.InetSocketAddress;
 import java.net.Socket;
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
+import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
 import java.util.zip.GZIPInputStream;
 import java.util.zip.GZIPOutputStream;
 
@@ -43,12 +45,47 @@ public class TcpClient {
     private static final int SERVER_PORT = ServerConfig.getTcpPort();
 
     // ==================== 线程池配置 ====================
-    /** 线程池，用于并发处理TCP请求（守护线程，避免阻塞JVM正常退出） */
-    private static final ExecutorService THREAD_POOL = Executors.newFixedThreadPool(16, r -> {
-        Thread thread = new Thread(r, "yaoguangyun-tcp-pool");
-        thread.setDaemon(true);
-        return thread;
-    });
+    /** 工作线程数 */
+    private static final int POOL_SIZE = 16;
+    /** 等待队列容量：无界队列会在服务端变慢时无限堆积请求 */
+    private static final int TASK_QUEUE_CAPACITY = 256;
+
+    /**
+     * 共享线程池，用于并发处理TCP请求（守护线程，避免阻塞JVM正常退出）。
+     *
+     * <p>使用有界队列 + AbortPolicy：队列满或池已关闭时抛出 RejectedExecutionException，
+     * 由 sendMessage 转成 onError 回调，而不是无声堆积。</p>
+     */
+    private static final ExecutorService THREAD_POOL = new ThreadPoolExecutor(
+            POOL_SIZE, POOL_SIZE, 0L, TimeUnit.MILLISECONDS,
+            new ArrayBlockingQueue<Runnable>(TASK_QUEUE_CAPACITY),
+            r -> {
+                Thread thread = new Thread(r, "yaoguangyun-tcp-pool");
+                thread.setDaemon(true);
+                return thread;
+            },
+            new ThreadPoolExecutor.AbortPolicy());
+
+    /** 实际执行请求的线程池；默认共享，也可由调用方注入（便于测试隔离） */
+    private final ExecutorService executor;
+
+    /**
+     * 使用共享线程池构造客户端。
+     */
+    public TcpClient() {
+        this(THREAD_POOL);
+    }
+
+    /**
+     * 使用指定线程池构造客户端。
+     *
+     * <p>注入的线程池生命周期由调用方负责；{@link #shutdown()} 只关闭共享池。</p>
+     *
+     * @param executor 执行器；null 表示使用共享池
+     */
+    public TcpClient(ExecutorService executor) {
+        this.executor = executor != null ? executor : THREAD_POOL;
+    }
 
     // ==================== 超时设置 ====================
     /** 连接超时时间（毫秒） */
@@ -89,13 +126,15 @@ public class TcpClient {
      */
     public void sendMessage(byte[] message, TcpResponseCallback callback) {
         try {
-            THREAD_POOL.execute(() -> {
+            executor.execute(() -> {
                 String response;
                 try {
                     response = executeTcpRequest(message);
-                } catch (Exception e) {
-                    if (callback != null) {
-                        callback.onError(e);
+                } catch (Throwable t) {
+                    // Error（例如 64MB 分配失败）也必须回调，否则调用方会一直等待
+                    reportError(callback, t);
+                    if (t instanceof Error) {
+                        throw (Error) t;
                     }
                     return;
                 }
@@ -109,6 +148,17 @@ public class TcpClient {
             if (callback != null) {
                 callback.onError(e);
             }
+        }
+    }
+
+    private static void reportError(TcpResponseCallback callback, Throwable t) {
+        if (callback == null) {
+            return;
+        }
+        if (t instanceof Exception) {
+            callback.onError((Exception) t);
+        } else {
+            callback.onError(new RuntimeException("TCP 请求失败: " + t, t));
         }
     }
 
@@ -129,17 +179,17 @@ public class TcpClient {
      * @throws IOException
      */
     private String executeTcpRequest(byte[] message) throws IOException {
-        Socket socket = new Socket();
-        try {
+        // try-with-resources 会保留原始异常，close 失败只会作为 suppressed 附加，
+        // 不会像手工 close 那样把真正的 IOException（如 Connection reset）覆盖掉。
+        try (Socket socket = new Socket()) {
             socket.setSoTimeout(SO_TIMEOUT);
             socket.setReceiveBufferSize(BUFFER_SIZE);
             socket.setSendBufferSize(BUFFER_SIZE);
             socket.connect(new InetSocketAddress(SERVER_HOST, SERVER_PORT), CONNECT_TIMEOUT);
 
-            DataInputStream dataInputStream = new DataInputStream(socket.getInputStream());
-            DataOutputStream dataOutputStream = new DataOutputStream(socket.getOutputStream());
+            try (DataInputStream dataInputStream = new DataInputStream(socket.getInputStream());
+                 DataOutputStream dataOutputStream = new DataOutputStream(socket.getOutputStream())) {
 
-            try {
                 // 发送魔数
                 dataOutputStream.write(MAGIC);
 
@@ -174,13 +224,7 @@ public class TcpClient {
                 dataInputStream.readFully(responseDataBytes);
 
                 return decodeResponseBody(responseDataBytes);
-
-            } finally {
-                dataOutputStream.close();
-                dataInputStream.close();
             }
-        } finally {
-            socket.close();
         }
     }
 
@@ -305,7 +349,7 @@ public class TcpClient {
      */
     private static int computeRsaCiphertextBase64Length() {
         try {
-            byte[] keyBytes = java.util.Base64.getDecoder().decode(ServerConfig.getRsaPublicKey());
+            byte[] keyBytes = RsaEncryptUtils.decodeKeyMaterial(ServerConfig.getRsaPublicKey());
             java.security.PublicKey key = java.security.KeyFactory.getInstance("RSA")
                     .generatePublic(new java.security.spec.X509EncodedKeySpec(keyBytes));
             int modulusBytes = (((java.security.interfaces.RSAPublicKey) key).getModulus().bitLength() + 7) / 8;

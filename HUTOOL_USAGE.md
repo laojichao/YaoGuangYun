@@ -149,6 +149,7 @@ import cn.hutool.crypto.SecureUtil;
 import cn.hutool.crypto.digest.DigestUtil;
 import cn.hutool.crypto.asymmetric.RSA;
 import cn.hutool.crypto.asymmetric.KeyType;
+import java.security.KeyPair;
 
 // MD5加密
 String md5 = DigestUtil.md5Hex("Hello");
@@ -156,8 +157,9 @@ String md5 = DigestUtil.md5Hex("Hello");
 // SHA256加密
 String sha256 = DigestUtil.sha256Hex("Hello");
 
-// RSA加密
-RSA rsa = new RSA();
+// RSA加密：显式 2048 位（new RSA() 默认只有 1024 位）
+KeyPair keyPair = SecureUtil.generateKeyPair("RSA", 2048);
+RSA rsa = new RSA(keyPair.getPrivate(), keyPair.getPublic());
 String publicKey = rsa.getPublicKeyBase64();
 String privateKey = rsa.getPrivateKeyBase64();
 
@@ -172,24 +174,32 @@ import cn.hutool.http.HttpUtil;
 import cn.hutool.http.HttpRequest;
 import cn.hutool.http.HttpResponse;
 
-// GET请求
-String response = HttpUtil.get("http://httpbin.org/get");
+// GET请求（必须显式设置超时，Hutool 默认不超时）
+String getBody = HttpUtil.createGet("http://httpbin.org/get")
+    .timeout(5000)
+    .execute()
+    .body();
 
 // POST请求
 Map<String, Object> params = new HashMap<>();
 params.put("username", "test");
 params.put("password", "123456");
-String postResponse = HttpUtil.post("http://httpbin.org/post", params);
+String postResponse = HttpUtil.createPost("http://httpbin.org/post")
+    .timeout(5000)
+    .form(params)
+    .execute()
+    .body();
 
-// 自定义请求
-HttpResponse response = HttpRequest.post("http://httpbin.org/post")
-    .header("Content-Type", "application/json")
-    .header("User-Agent", "Hutool-Test/1.0")
-    .body("{\"key\":\"value\"}")
-    .execute();
-
-int statusCode = response.getStatus();
-String body = response.body();
+// 自定义请求：HttpResponse 必须关闭，否则连接不会释放
+try (HttpResponse response = HttpRequest.post("http://httpbin.org/post")
+        .header("Content-Type", "application/json")
+        .header("User-Agent", "Hutool-Test/1.0")
+        .body("{\"key\":\"value\"}")
+        .timeout(5000)
+        .execute()) {
+    int statusCode = response.getStatus();
+    String body = response.body();
+}
 ```
 
 ### 8. JSON工具 (JSONUtil)
@@ -346,8 +356,8 @@ Base64解码: Hello, Hutool!
 --- 加密工具示例 ---
 MD5加密: 727a8ae5cb807f0bc9a29e696febf685
 SHA256加密: bcf07f54ed04354d491445b03a54cbeca3151f19af1bb700af3a1894cd673b83
-RSA公钥长度: 216
-RSA私钥长度: 848
+RSA公钥长度: 392
+RSA私钥长度: 1624
 RSA加密成功: true
 RSA解密成功: true
 
@@ -412,8 +422,11 @@ String encrypted = aes.encryptHex(data);
 
 ### 5. HTTP请求
 ```java
-// 简单请求使用HttpUtil
-String response = HttpUtil.get(url);
+// 简单请求使用HttpUtil（显式超时；HttpResponse 由 try-with-resources 关闭）
+String response;
+try (HttpResponse simpleResponse = HttpUtil.createGet(url).timeout(5000).execute()) {
+    response = simpleResponse.body();
+}
 
 // 复杂请求使用HttpRequest
 HttpResponse response = HttpRequest.post(url)

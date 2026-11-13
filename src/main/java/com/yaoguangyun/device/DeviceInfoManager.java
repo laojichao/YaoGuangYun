@@ -168,7 +168,10 @@ public class DeviceInfoManager {
      * 的缓存语义之外——两个视图都是从同一个对象派生，因此始终一致；
      * 但若需要按字段名修改，请使用 {@link #setDeviceInfo(String, String)} 以便校验键名。</p>
      *
-     * @return DeviceInfo实例
+     * <p><b>线程安全</b>：返回的是内部活对象，不是副本。管理器方法上的 synchronized
+     * 不会保护调用方在拿到引用后的读写；跨线程使用时需由调用方自行同步。</p>
+     *
+     * @return DeviceInfo实例（内部共享对象）
      */
     public synchronized DeviceInfo getDeviceInfo() {
         return deviceInfo;
@@ -192,22 +195,20 @@ public class DeviceInfoManager {
      * @return 值
      */
     public synchronized String getDeviceInfo(String key) {
-        String value = buildDeviceInfoMap().get(key);
-        if (value != null) {
-            return value;
-        }
-        // snake_case 未命中时尝试 Java 字段名（如 androidId），与 setDeviceInfo 的别名规则对称
+        // 先按字段名直接查（同时支持 snake_case 与 Java 字段名），
+        // 避免单键查询也把 69 个字段完整序列化一遍。
         Field field = findFieldBySerializedName(key);
-        if (field == null) {
-            return null;
+        if (field != null) {
+            try {
+                field.setAccessible(true);
+                Object fieldValue = field.get(deviceInfo);
+                return fieldValue != null ? (String) fieldValue : null;
+            } catch (ReflectiveOperationException e) {
+                return null;
+            }
         }
-        try {
-            field.setAccessible(true);
-            Object fieldValue = field.get(deviceInfo);
-            return fieldValue != null ? (String) fieldValue : null;
-        } catch (ReflectiveOperationException e) {
-            return null;
-        }
+        // 兜底：未来若 map 中出现非字段来源的键，仍可从派生视图读取
+        return buildDeviceInfoMap().get(key);
     }
     
     /**

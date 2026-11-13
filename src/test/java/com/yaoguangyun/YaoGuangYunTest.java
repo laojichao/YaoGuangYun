@@ -5,6 +5,7 @@ import com.yaoguangyun.config.JsonConfigParser;
 import com.yaoguangyun.device.DeviceInfo;
 import com.yaoguangyun.device.DeviceInfoManager;
 import com.yaoguangyun.network.HttpClient;
+import com.yaoguangyun.network.HttpsDnsClient;
 import com.yaoguangyun.network.JsonDataProcessor;
 import com.yaoguangyun.network.ServerConfig;
 import com.yaoguangyun.network.TcpClient;
@@ -12,23 +13,35 @@ import com.yaoguangyun.network.TcpResponseCallback;
 import com.yaoguangyun.proto.BasicDeviceInfo;
 import com.yaoguangyun.proto.CardOperationType;
 import com.yaoguangyun.proto.CardProtobufMessage;
+import com.yaoguangyun.proto.CardType;
 import com.yaoguangyun.proto.DnsMessage;
+import com.yaoguangyun.proto.ProtobufMessage;
 import com.yaoguangyun.proto.RequestDataMap;
 import com.yaoguangyun.test.SimpleHttpServer;
 import com.yaoguangyun.util.AppUtils;
 import com.yaoguangyun.util.GsonUtils;
+import com.yaoguangyun.util.HutoolUtils;
 import com.yaoguangyun.util.RsaEncryptUtils;
 
 import org.junit.Test;
 
 import java.io.ByteArrayOutputStream;
+import java.io.DataOutputStream;
+import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
+import java.lang.reflect.Field;
+import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Method;
+import java.net.IDN;
+import java.net.URLEncoder;
+import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.KeyPair;
 import java.util.Map;
+import java.util.concurrent.TimeUnit;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
@@ -97,6 +110,8 @@ public class YaoGuangYunTest {
         String request = JsonDataProcessor.buildVerifyRequest(
                 manager.getDeviceInfo(), CardOperationType.Verify, null);
         assertFalse("请求中的 android_id 不能为空", request.contains("\"android_id\":\"\""));
+        assertTrue("android_id 应等于模拟值: " + request,
+                request.contains("\"android_id\":\"9774d56d682e549c\""));
     }
 
     @Test
@@ -325,8 +340,10 @@ public class YaoGuangYunTest {
         SimpleHttpServer server = new SimpleHttpServer(0);
         server.start();
         try {
-            // 只断言「服务器可用」，绑定地址由 InetAddress.getLoopbackAddress() 保证
-            assertTrue(server.getBoundPort() > 0);
+            assertTrue("端口应由系统分配", server.getBoundPort() > 0);
+            assertNotNull("应能读到实际绑定地址", server.getBoundAddress());
+            assertTrue("服务器必须只绑定回环地址，实际: " + server.getBoundAddress(),
+                    server.getBoundAddress().getAddress().isLoopbackAddress());
         } finally {
             server.stop();
         }
@@ -371,12 +388,15 @@ public class YaoGuangYunTest {
     public void oversizedDecompressionIsRejected() throws Exception {
         // 压缩炸弹：约 80MB 的零压缩后只有几十 KB。
         // 只限制压缩前的长度挡不住它，必须限制解压后的字节数。
-        ByteArrayOutputStream raw = new ByteArrayOutputStream();
-        byte[] zeros = new byte[1024 * 1024];
-        for (int i = 0; i < 80; i++) {
-            raw.write(zeros, 0, zeros.length);
+        // 直接流式写入 GZIPOutputStream，避免测试自身先分配 200MB 堆。
+        ByteArrayOutputStream compressed = new ByteArrayOutputStream();
+        java.util.zip.GZIPOutputStream gz = new java.util.zip.GZIPOutputStream(compressed);
+        byte[] zeros = new byte[8 * 1024];
+        for (int i = 0; i < (80 * 1024) / 8; i++) {
+            gz.write(zeros, 0, zeros.length);
         }
-        byte[] bomb = gzip(raw.toByteArray());
+        gz.close();
+        byte[] bomb = compressed.toByteArray();
         assertTrue("炸弹载荷本身应当很小", bomb.length < 200 * 1024);
 
         try {
@@ -503,27 +523,34 @@ public class YaoGuangYunTest {
 
     @Test
     public void sendMessageAfterShutdownReportsErrorInsteadOfThrowing() throws Exception {
-        TcpClient.shutdown();
+        // 使用注入的本地线程池，避免关闭全局共享池影响其他测试（JUnit 方法顺序不保证）
+        java.util.concurrent.ExecutorService pool = java.util.concurrent.Executors.newSingleThreadExecutor();
         final java.util.concurrent.atomic.AtomicReference<Exception> reported =
                 new java.util.concurrent.atomic.AtomicReference<>();
         final java.util.concurrent.CountDownLatch latch = new java.util.concurrent.CountDownLatch(1);
 
-        new TcpClient().sendMessage("{}".getBytes(StandardCharsets.UTF_8), new TcpResponseCallback() {
-            @Override
-            public void onSuccess(String response) {
-                latch.countDown();
-            }
+        try {
+            TcpClient client = new TcpClient(pool);
+            pool.shutdown();
+            client.sendMessage("{}".getBytes(StandardCharsets.UTF_8), new TcpResponseCallback() {
+                @Override
+                public void onSuccess(String response) {
+                    latch.countDown();
+                }
 
-            @Override
-            public void onError(Exception e) {
-                reported.set(e);
-                latch.countDown();
-            }
-        });
+                @Override
+                public void onError(Exception e) {
+                    reported.set(e);
+                    latch.countDown();
+                }
+            });
 
-        assertTrue("回调应被触发而不是抛出未受检异常", latch.await(5, java.util.concurrent.TimeUnit.SECONDS));
-        assertTrue("线程池已关闭时应通过 onError 报告",
-                reported.get() instanceof java.util.concurrent.RejectedExecutionException);
+            assertTrue("回调应被触发而不是抛出未受检异常", latch.await(5, java.util.concurrent.TimeUnit.SECONDS));
+            assertTrue("线程池已关闭时应通过 onError 报告",
+                    reported.get() instanceof java.util.concurrent.RejectedExecutionException);
+        } finally {
+            pool.shutdownNow();
+        }
     }
 
     // ==================== 第三轮排查回归（R-1 / R-2 / R-6 / R-8） ====================
@@ -590,7 +617,507 @@ public class YaoGuangYunTest {
         assertNull("缺失键返回 null", JsonDataProcessor.extractField("{}", "nope"));
     }
 
+    // ==================== 第四轮回归（HTTP / 协议 / 加密 / 配置 / DNS） ====================
+
+    @Test
+    public void httpClientDecodesCompressedBodies() throws IOException {
+        SimpleHttpServer server = new SimpleHttpServer(0);
+        server.start();
+        try {
+            String base = baseUrl(server);
+            HttpClient client = new HttpClient(5000);
+
+            assertTrue("gzip 应被自动解压",
+                    readAll(client.get(base + "/api/gzip")).contains("\"encoding\":\"gzip\""));
+            assertTrue("deflate 应被自动解压",
+                    readAll(client.get(base + "/api/deflate")).contains("\"encoding\":\"deflate\""));
+            assertTrue("identity 应原样返回",
+                    readAll(client.get(base + "/api/identity")).contains("\"encoding\":\"identity\""));
+        } finally {
+            server.stop();
+        }
+    }
+
+    @Test
+    public void httpClientRejectsUnknownContentEncoding() throws IOException {
+        SimpleHttpServer server = new SimpleHttpServer(0);
+        server.start();
+        try {
+            HttpClient client = new HttpClient(5000);
+            try {
+                client.get(baseUrl(server) + "/api/encoding-bogus");
+                org.junit.Assert.fail("未知 Content-Encoding 应抛 IOException");
+            } catch (IOException e) {
+                assertTrue("异常信息应说明编码不支持: " + e.getMessage(),
+                        e.getMessage().contains("Content-Encoding"));
+            }
+        } finally {
+            server.stop();
+        }
+    }
+
+    @Test
+    public void httpClientRejectsNonHttpRedirect() throws IOException {
+        SimpleHttpServer server = new SimpleHttpServer(0);
+        server.start();
+        try {
+            HttpClient client = new HttpClient(5000);
+            String target = URLEncoder.encode("ftp://example.com/x", "UTF-8");
+            try {
+                client.get(baseUrl(server) + "/api/redirect?code=302&to=" + target);
+                org.junit.Assert.fail("非 http(s) 重定向应抛 IOException");
+            } catch (IOException e) {
+                assertTrue("应是协议错误而不是 ClassCastException: " + e.getMessage(),
+                        e.getMessage().contains("协议"));
+            }
+        } finally {
+            server.stop();
+        }
+    }
+
+    @Test
+    public void httpClientReturnsEmptyBodyFor304() throws IOException {
+        SimpleHttpServer server = new SimpleHttpServer(0);
+        server.start();
+        try {
+            HttpClient client = new HttpClient(5000);
+            assertEquals("304 应返回空流", "",
+                    readAll(client.get(baseUrl(server) + "/api/redirect?code=304")));
+        } finally {
+            server.stop();
+        }
+    }
+
+    @Test
+    public void httpClientPreservesMethodOn308AndDowngradesOn303() throws IOException {
+        SimpleHttpServer server = new SimpleHttpServer(0);
+        server.start();
+        try {
+            String base = baseUrl(server);
+            HttpClient client = new HttpClient(5000);
+
+            String toEcho = URLEncoder.encode(base + "/api/echo", "UTF-8");
+            String via308 = readAll(client.post(base + "/api/redirect?code=308&to=" + toEcho,
+                    "keep308".getBytes(StandardCharsets.UTF_8)));
+            assertTrue("308 应保留 POST 与请求体: " + via308, via308.contains("keep308"));
+
+            String via303 = readAll(client.post(base + "/api/redirect?code=303&to=" + toEcho,
+                    "drop303".getBytes(StandardCharsets.UTF_8)));
+            assertTrue("303 应降级为 GET: " + via303, via303.contains("\"method\":\"GET\""));
+            assertFalse("303 不应携带原请求体: " + via303, via303.contains("drop303"));
+        } finally {
+            server.stop();
+        }
+    }
+
+    @Test
+    public void httpClientStripsSensitiveHeadersAcrossOrigins() throws IOException {
+        SimpleHttpServer headerServer = new SimpleHttpServer(0);
+        SimpleHttpServer redirectServer = new SimpleHttpServer(0);
+        headerServer.start();
+        redirectServer.start();
+        try {
+            String crossTarget = URLEncoder.encode(baseUrl(headerServer) + "/api/headers", "UTF-8");
+            HttpClient crossClient = new HttpClient(5000);
+            crossClient.addHeader("Authorization", "Bearer secret");
+            String crossBody = readAll(crossClient.get(
+                    baseUrl(redirectServer) + "/api/redirect?code=302&to=" + crossTarget));
+            assertFalse("跨源重定向不能转发 Authorization: " + crossBody,
+                    crossBody.toLowerCase().contains("secret"));
+
+            String sameTarget = URLEncoder.encode("/api/headers", "UTF-8");
+            HttpClient sameClient = new HttpClient(5000);
+            sameClient.addHeader("Authorization", "Bearer secret");
+            String sameBody = readAll(sameClient.get(
+                    baseUrl(redirectServer) + "/api/redirect?code=302&to=" + sameTarget));
+            assertTrue("同源重定向应保留 Authorization: " + sameBody,
+                    sameBody.contains("secret"));
+        } finally {
+            redirectServer.stop();
+            headerServer.stop();
+        }
+    }
+
+    @Test
+    public void httpClientReadsLargeResponseFully() throws IOException {
+        SimpleHttpServer server = new SimpleHttpServer(0);
+        server.start();
+        try {
+            String body = readAll(new HttpClient(5000).get(baseUrl(server) + "/api/large"));
+            assertTrue("大响应不能被截断，实际长度 " + body.length(), body.length() > 32 * 1024);
+            assertTrue("尾部标记应完整: " + body.substring(Math.max(0, body.length() - 80)),
+                    body.endsWith("\"tail\":\"0123456789abcdef0123456789abcdef\"}"));
+        } finally {
+            server.stop();
+        }
+    }
+
+    @Test
+    public void httpClientRejectsNonPositiveTimeout() {
+        assertThrows(IllegalArgumentException.class, () -> new HttpClient(0));
+        assertThrows(IllegalArgumentException.class, () -> new HttpClient(-1));
+    }
+
+    @Test
+    public void httpClientReportsMethodAndBodyLimitErrors() throws IOException {
+        SimpleHttpServer server = new SimpleHttpServer(0);
+        server.start();
+        try {
+            String base = baseUrl(server);
+            HttpClient client = new HttpClient(5000);
+
+            try {
+                client.post(base + "/api/test", "x".getBytes(StandardCharsets.UTF_8));
+                org.junit.Assert.fail("错误方法应返回 405");
+            } catch (IOException e) {
+                assertTrue("应包含 405: " + e.getMessage(), e.getMessage().contains("405"));
+            }
+
+            byte[] oversized = new byte[2 * 1024 * 1024];
+            try {
+                client.post(base + "/api/echo", oversized);
+                org.junit.Assert.fail("超大请求体应返回 413");
+            } catch (IOException e) {
+                assertTrue("应包含 413: " + e.getMessage(), e.getMessage().contains("413"));
+            }
+        } finally {
+            server.stop();
+        }
+    }
+
+    @Test
+    public void enumSentinelIsRejectedEverywhere() {
+        assertThrows(IllegalArgumentException.class, () -> GsonUtils.toJson(CardOperationType.UNRECOGNIZED));
+        assertThrows(IllegalArgumentException.class, () -> GsonUtils.toJson(CardType.UNRECOGNIZED));
+        assertNull("字符串 UNRECOGNIZED 应被 GsonUtils 吞成 null",
+                GsonUtils.fromJson("{\"op\":\"UNRECOGNIZED\"}", CardProtobufMessage.class));
+        assertThrows(IllegalArgumentException.class,
+                () -> new CardProtobufMessage().setOp(CardOperationType.valueOf(99)));
+        assertThrows(IllegalArgumentException.class,
+                () -> new ProtobufMessage().setDataType(CardType.valueOf(7)));
+    }
+
+    @Test
+    public void protobufMessageInfersOneofBranch() {
+        ProtobufMessage parsed = GsonUtils.fromJson("{\"card\":{\"op\":\"Verify\"}}", ProtobufMessage.class);
+        assertNotNull(parsed);
+        assertNotNull("反序列化后 card 分支应可达", parsed.getCard());
+        assertEquals(CardType.Card, parsed.getDataType());
+
+        ProtobufMessage message = new ProtobufMessage();
+        message.setSoft(new DnsMessage());
+        message.setCard(new CardProtobufMessage());
+        assertFalse("setCard 应清空 soft 分支", message.hasSoft());
+        assertTrue(message.hasCard());
+
+        String json = GsonUtils.toJson(message);
+        assertTrue("应包含 card: " + json, json.contains("\"card\""));
+        assertFalse("不应同时包含 soft: " + json, json.contains("\"soft\""));
+    }
+
+    @Test
+    public void mapContractsTreatNullAsAbsent() {
+        CardProtobufMessage card = GsonUtils.fromJson(
+                "{\"data\":{\"a\":null,\"b\":\"v\"}}", CardProtobufMessage.class);
+        assertNotNull(card);
+        assertEquals(1, card.getDataCount());
+        assertFalse(card.containsData("a"));
+        assertEquals("d", card.getDataOrDefault("a", "d"));
+        assertEquals(1, card.getDataMap().size());
+        assertThrows(IllegalArgumentException.class, () -> card.putData(null, "v"));
+        assertThrows(IllegalArgumentException.class, () -> card.putData("k", null));
+
+        DnsMessage dns = GsonUtils.fromJson(
+                "{\"properties\":{\"a\":null,\"b\":\"v\"}}", DnsMessage.class);
+        assertNotNull(dns);
+        assertEquals(1, dns.getPropertiesCount());
+        assertFalse(dns.containsProperty("a"));
+        assertEquals("d", dns.getPropertyOrDefault("a", "d"));
+        assertThrows(IllegalArgumentException.class, () -> dns.setProperty("k", null));
+    }
+
+    @Test
+    public void verifyReturnsFalseForNullDataOrSignature() {
+        KeyPair keyPair = RsaEncryptUtils.generateKeyPair();
+        String publicKey = RsaEncryptUtils.getPublicKeyBase64(keyPair);
+        String signature = RsaEncryptUtils.sign("data", RsaEncryptUtils.getPrivateKeyBase64(keyPair));
+
+        assertFalse("data 为 null 应返回 false", RsaEncryptUtils.verify(null, signature, publicKey));
+        assertFalse("签名为 null 应返回 false", RsaEncryptUtils.verify("data", null, publicKey));
+        assertFalse("签名为空串应返回 false", RsaEncryptUtils.verify("data", "", publicKey));
+    }
+
+    @Test
+    public void rsaKeyMaterialAcceptsPemAndWhitespace() {
+        KeyPair keyPair = RsaEncryptUtils.generateKeyPair();
+        String publicKey = RsaEncryptUtils.getPublicKeyBase64(keyPair);
+        String pem = "-----BEGIN PUBLIC KEY-----\n"
+                + wrapBase64(publicKey, 64)
+                + "\n-----END PUBLIC KEY-----\n";
+
+        String encrypted = RsaEncryptUtils.encrypt("hello-pem", pem);
+        assertEquals("hello-pem",
+                RsaEncryptUtils.decrypt(encrypted, RsaEncryptUtils.getPrivateKeyBase64(keyPair)));
+        assertThrows(IllegalArgumentException.class, () -> RsaEncryptUtils.decodeKeyMaterial("  \n "));
+    }
+
+    @Test
+    public void encryptWithPrivateKeyRejectsOversizedPayload() {
+        KeyPair keyPair = RsaEncryptUtils.generateKeyPair();
+        String privateKey = RsaEncryptUtils.getPrivateKeyBase64(keyPair);
+        assertThrows(IllegalArgumentException.class,
+                () -> RsaEncryptUtils.encryptWithPrivateKey(repeat("a", 300), privateKey));
+    }
+
+    @Test
+    public void isValidJsonRejectsWhitespaceOnly() {
+        assertFalse(GsonUtils.isValidJson("   "));
+        assertFalse(GsonUtils.isValidJson("\n\t"));
+    }
+
+    @Test
+    public void jsonNumericGettersAreExact() {
+        com.google.gson.JsonObject object = com.google.gson.JsonParser
+                .parseString("{\"big\":4294967297,\"fraction\":1.9,\"inf\":1e400}")
+                .getAsJsonObject();
+        assertEquals("溢出应返回 0", 0, GsonUtils.getInt(object, "big"));
+        assertEquals("小数应返回 0", 0, GsonUtils.getInt(object, "fraction"));
+        assertEquals("Infinity 应返回 0", 0.0, GsonUtils.getDouble(object, "inf"), 0.0);
+    }
+
+    @Test
+    public void configNumericGettersAreExact() throws IOException {
+        Path path = Files.createTempFile("ygy-numbers", ".json");
+        Files.write(path, "{\"big\":4294967297,\"fraction\":1.9,\"inf\":1e400}"
+                .getBytes(StandardCharsets.UTF_8));
+        try {
+            JsonConfigParser parser = new JsonConfigParser(path.toString());
+            assertTrue(parser.load());
+            assertEquals(7, parser.getInt("big", 7));
+            assertEquals(7, parser.getInt("fraction", 7));
+            assertEquals(7.0, parser.getDouble("inf", 7.0), 0.0);
+        } finally {
+            Files.deleteIfExists(path);
+        }
+    }
+
+    @Test
+    public void configKeysAndMergeContracts() {
+        JsonConfigParser parser = new JsonConfigParser("unused.json");
+        assertTrue(parser.fromJson("{\"a\":1}"));
+        assertThrows(IllegalArgumentException.class, () -> parser.setString(null, "v"));
+        assertThrows(IllegalArgumentException.class, () -> parser.setString("", "v"));
+        assertThrows(IllegalArgumentException.class, () -> parser.setString("a..b", "v"));
+        assertThrows(IllegalStateException.class, () -> parser.setInt("a.b", 2));
+        assertThrows(UnsupportedOperationException.class, () -> parser.getKeys().clear());
+
+        JsonConfigParser base = new JsonConfigParser("base.json");
+        assertTrue(base.fromJson("{\"server\":{\"ip\":\"a\",\"port\":1}}"));
+        JsonConfigParser other = new JsonConfigParser("other.json");
+        assertTrue(other.fromJson("{\"server\":{\"port\":2}}"));
+        base.merge(other);
+        assertEquals("深合并应保留未覆盖的键", "a", base.getString("server.ip", ""));
+        assertEquals(2, base.getInt("server.port", 0));
+    }
+
+    @Test
+    public void createDefaultConfigRejectsNull() throws IOException {
+        Path path = Files.createTempFile("ygy-default", ".json");
+        try {
+            assertFalse(JsonConfigParser.createDefaultConfig(path.toString(), null));
+        } finally {
+            Files.deleteIfExists(path);
+        }
+    }
+
+    @Test
+    public void configLoadsFromExplicitPathInChildJvm() throws Exception {
+        Path config = writeProbeConfig();
+        try {
+            String output = runConfigProbe(config, null);
+            assertTrue("server.ip 应来自配置文件: " + output, output.contains("ip=config-probe.invalid"));
+            assertTrue("tcp_port 应来自配置文件: " + output, output.contains("tcp=5101"));
+            assertTrue("http_port 应来自配置文件: " + output, output.contains("http=5102"));
+            assertTrue("timeout 应来自配置文件: " + output, output.contains("timeout=4321"));
+            assertTrue("cache.enabled 应来自配置文件: " + output, output.contains("cache=false"));
+        } finally {
+            Files.deleteIfExists(config);
+        }
+    }
+
+    @Test
+    public void configEnvironmentOverridesAreValidated() throws Exception {
+        Path config = writeProbeConfig();
+        try {
+            Map<String, String> env = new java.util.HashMap<>();
+            env.put("YAOGUANGYUN_TCP_PORT", "70000");
+            env.put("YAOGUANGYUN_SERVER_IP", "   ");
+            String output = runConfigProbe(config, env);
+            assertTrue("非法端口应回退到配置文件值: " + output, output.contains("tcp=5101"));
+            assertTrue("空白 IP 应回退到配置文件值: " + output, output.contains("ip=config-probe.invalid"));
+        } finally {
+            Files.deleteIfExists(config);
+        }
+    }
+
+    @Test
+    public void dnsParserHandlesAnswersAndErrors() throws Exception {
+        byte[] valid = dnsResponse(0x1234, 0x8180, "1.2.3.4");
+        assertEquals("1.2.3.4", invokeParseDnsResponse(valid, 0x1234));
+
+        assertThrows(IOException.class, () -> invokeParseDnsResponse(new byte[] {0, 1}, 0x1234));
+        assertThrows(IOException.class, () -> invokeParseDnsResponse(valid, 0x1235));
+        assertThrows(IOException.class,
+                () -> invokeParseDnsResponse(dnsResponse(0x1234, 0x8380, "1.2.3.4"), 0x1234));
+        assertThrows(IOException.class,
+                () -> invokeParseDnsResponse(dnsResponse(0x1234, 0x8182, "1.2.3.4"), 0x1234));
+        assertThrows(java.net.UnknownHostException.class,
+                () -> invokeParseDnsResponse(dnsResponse(0x1234, 0x8183, "1.2.3.4"), 0x1234));
+    }
+
+    @Test
+    public void dnsClientConvertsIdnAndRequiresHttpsServer() throws Exception {
+        HttpsDnsClient client = new HttpsDnsClient("例子.测试");
+        Field field = HttpsDnsClient.class.getDeclaredField("hostname");
+        field.setAccessible(true);
+        assertEquals(IDN.toASCII("例子.测试"), field.get(client));
+
+        assertThrows(IllegalArgumentException.class,
+                () -> new HttpsDnsClient("example.com", "http://dns.example/dns-query"));
+    }
+
+    @Test
+    public void rsaCiphertextHeuristicAcceptsExactLength() throws Exception {
+        assertTrue("344 字符应被识别为候选密文", invokeLooksLikeRsaCiphertext(repeat("A", 344)));
+        assertFalse("343 字符不应被识别", invokeLooksLikeRsaCiphertext(repeat("A", 343)));
+        assertFalse("345 字符不应被识别", invokeLooksLikeRsaCiphertext(repeat("A", 345)));
+    }
+
+    @Test
+    public void hutoolUtilsJsonContractMatchesGsonUtils() {
+        assertNull(HutoolUtils.fromJson("{bad", Map.class));
+        assertNull(HutoolUtils.toMap("{bad"));
+        // Hutool 的 formatJsonStr 本身是宽松的，不保证失败；这里只要求它不抛异常
+        assertNotNull(HutoolUtils.formatJson("{bad"));
+    }
+
     // ==================== 辅助方法 ====================
+
+    private static String baseUrl(SimpleHttpServer server) {
+        return "http://" + server.getBoundAddress().getAddress().getHostAddress()
+                + ":" + server.getBoundPort();
+    }
+
+    private static String wrapBase64(String value, int lineLength) {
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < value.length(); i += lineLength) {
+            if (sb.length() > 0) {
+                sb.append('\n');
+            }
+            sb.append(value, i, Math.min(value.length(), i + lineLength));
+        }
+        return sb.toString();
+    }
+
+    private static Path writeProbeConfig() throws IOException {
+        Path config = Files.createTempFile("ygy-probe", ".json");
+        String json = "{"
+                + "\"server\":{\"ip\":\"config-probe.invalid\",\"tcp_port\":5101,"
+                + "\"http_port\":5102,\"timeout\":4321},"
+                + "\"network\":{\"connect_timeout\":1111,\"read_timeout\":2222,"
+                + "\"buffer_size\":3333,\"max_redirects\":1},"
+                + "\"cache\":{\"enabled\":false}"
+                + "}";
+        Files.write(config, json.getBytes(StandardCharsets.UTF_8));
+        return config;
+    }
+
+    private static String runConfigProbe(Path config, Map<String, String> extraEnv) throws Exception {
+        String javaHome = System.getProperty("java.home");
+        String executable = System.getProperty("os.name").toLowerCase().contains("windows")
+                ? "java.exe" : "java";
+        File java = new File(new File(javaHome, "bin"), executable);
+        String classpath = System.getProperty("surefire.test.class.path",
+                System.getProperty("java.class.path"));
+
+        ProcessBuilder builder = new ProcessBuilder(
+                java.getAbsolutePath(),
+                "-cp", classpath,
+                "-Dyaoguangyun.config=" + config.toAbsolutePath(),
+                "com.yaoguangyun.ConfigProbe");
+        builder.redirectErrorStream(true);
+
+        String[] variables = {
+                "YAOGUANGYUN_SERVER_IP", "YAOGUANGYUN_TCP_PORT", "YAOGUANGYUN_HTTP_PORT",
+                "YAOGUANGYUN_RSA_PUBLIC_KEY", "YAOGUANGYUN_APP_KEY", "YAOGUANGYUN_CONFIG"
+        };
+        for (String variable : variables) {
+            builder.environment().remove(variable);
+        }
+        if (extraEnv != null) {
+            builder.environment().putAll(extraEnv);
+        }
+
+        Process process = builder.start();
+        ByteArrayOutputStream output = new ByteArrayOutputStream();
+        byte[] buffer = new byte[4096];
+        int read;
+        while ((read = process.getInputStream().read(buffer)) != -1) {
+            output.write(buffer, 0, read);
+        }
+        assertTrue("配置探针应在 30 秒内结束", process.waitFor(30, TimeUnit.SECONDS));
+        return new String(output.toByteArray(), StandardCharsets.UTF_8);
+    }
+
+    private static byte[] dnsResponse(int transactionId, int flags, String ip) throws IOException {
+        ByteArrayOutputStream output = new ByteArrayOutputStream();
+        DataOutputStream data = new DataOutputStream(output);
+        data.writeShort(transactionId);
+        data.writeShort(flags);
+        data.writeShort(1); // QDCOUNT
+        data.writeShort(1); // ANCOUNT
+        data.writeShort(0); // NSCOUNT
+        data.writeShort(0); // ARCOUNT
+
+        for (String label : new String[] {"www", "example", "com"}) {
+            data.writeByte(label.length());
+            data.write(label.getBytes(StandardCharsets.US_ASCII));
+        }
+        data.writeByte(0);
+        data.writeShort(1); // QTYPE A
+        data.writeShort(1); // QCLASS IN
+
+        data.writeShort(0xC00C); // 指向查询名的压缩指针
+        data.writeShort(1);      // TYPE A
+        data.writeShort(1);      // CLASS IN
+        data.writeInt(60);       // TTL
+        data.writeShort(4);      // RDLENGTH
+        for (String octet : ip.split("\\.")) {
+            data.writeByte(Integer.parseInt(octet));
+        }
+        data.flush();
+        return output.toByteArray();
+    }
+
+    private static String invokeParseDnsResponse(byte[] response, int expectedTransactionId) throws Exception {
+        java.lang.reflect.Constructor<HttpsDnsClient> constructor =
+                HttpsDnsClient.class.getDeclaredConstructor(String.class);
+        constructor.setAccessible(true);
+        HttpsDnsClient client = constructor.newInstance("www.example.com");
+
+        Method method = HttpsDnsClient.class.getDeclaredMethod(
+                "parseDnsResponse", byte[].class, int.class);
+        method.setAccessible(true);
+        try {
+            return (String) method.invoke(client, response, expectedTransactionId);
+        } catch (InvocationTargetException e) {
+            Throwable cause = e.getCause();
+            if (cause instanceof Exception) {
+                throw (Exception) cause;
+            }
+            throw e;
+        }
+    }
 
     private static String readAll(InputStream inputStream) throws IOException {
         try (InputStream in = inputStream) {

@@ -68,11 +68,38 @@ public class RsaEncryptUtils {
     /**
      * 获取 RSA 密钥模长的字节数（2048 位 → 256 字节）
      */
-    private static int modulusByteLength(PublicKey publicKey) {
-        if (publicKey instanceof java.security.interfaces.RSAPublicKey) {
-            return (((java.security.interfaces.RSAPublicKey) publicKey).getModulus().bitLength() + 7) / 8;
+    private static int modulusByteLength(java.security.Key key) {
+        if (key instanceof java.security.interfaces.RSAPublicKey) {
+            return (((java.security.interfaces.RSAPublicKey) key).getModulus().bitLength() + 7) / 8;
+        }
+        if (key instanceof java.security.interfaces.RSAPrivateKey) {
+            return (((java.security.interfaces.RSAPrivateKey) key).getModulus().bitLength() + 7) / 8;
         }
         return KEY_SIZE / 8;
+    }
+
+    /**
+     * 解码 RSA 密钥材料。
+     *
+     * <p>允许直接传入 PEM 文本（含 BEGIN/END 头尾与换行），也允许单行裸 Base64。
+     * 环境变量注入 PEM 时最常见的失败就是 Base64 解码器拒绝换行；这里统一剥离。</p>
+     *
+     * @param keyMaterial PEM 或裸 Base64 密钥
+     * @return 解码后的密钥字节
+     * @throws IllegalArgumentException 输入为 null/空或不是合法 Base64
+     */
+    public static byte[] decodeKeyMaterial(String keyMaterial) {
+        if (keyMaterial == null) {
+            throw new IllegalArgumentException("RSA 密钥不能为 null");
+        }
+        String cleaned = keyMaterial
+                .replaceAll("-----BEGIN [^-]+-----", "")
+                .replaceAll("-----END [^-]+-----", "")
+                .replaceAll("\\s", "");
+        if (cleaned.isEmpty()) {
+            throw new IllegalArgumentException("RSA 密钥为空");
+        }
+        return Base64.getDecoder().decode(cleaned);
     }
 
     /**
@@ -113,7 +140,7 @@ public class RsaEncryptUtils {
         byte[] plain = data.getBytes(StandardCharsets.UTF_8);
         try {
             // 解码公钥
-            byte[] keyBytes = Base64.getDecoder().decode(publicKeyBase64);
+            byte[] keyBytes = decodeKeyMaterial(publicKeyBase64);
             X509EncodedKeySpec keySpec = new X509EncodedKeySpec(keyBytes);
             KeyFactory keyFactory = KeyFactory.getInstance(RSA_ALGORITHM);
             PublicKey publicKey = keyFactory.generatePublic(keySpec);
@@ -153,7 +180,7 @@ public class RsaEncryptUtils {
     public static String decrypt(String encryptedData, String privateKeyBase64) {
         try {
             // 解码私钥
-            byte[] keyBytes = Base64.getDecoder().decode(privateKeyBase64);
+            byte[] keyBytes = decodeKeyMaterial(privateKeyBase64);
             PKCS8EncodedKeySpec keySpec = new PKCS8EncodedKeySpec(keyBytes);
             KeyFactory keyFactory = KeyFactory.getInstance(RSA_ALGORITHM);
             PrivateKey privateKey = keyFactory.generatePrivate(keySpec);
@@ -182,24 +209,36 @@ public class RsaEncryptUtils {
      * @param data 待加密数据
      * @param privateKeyBase64 Base64编码的RSA私钥
      * @return 加密后的Base64字符串
+     * @throws IllegalArgumentException 明文超出单块 RSA 加密容量
      * @throws RuntimeException 加密失败时抛出异常
      */
     public static String encryptWithPrivateKey(String data, String privateKeyBase64) {
+        byte[] plain = data.getBytes(StandardCharsets.UTF_8);
         try {
             // 解码私钥
-            byte[] keyBytes = Base64.getDecoder().decode(privateKeyBase64);
+            byte[] keyBytes = decodeKeyMaterial(privateKeyBase64);
             PKCS8EncodedKeySpec keySpec = new PKCS8EncodedKeySpec(keyBytes);
             KeyFactory keyFactory = KeyFactory.getInstance(RSA_ALGORITHM);
             PrivateKey privateKey = keyFactory.generatePrivate(keySpec);
-            
+
+            // 与 encrypt 保持同一容量契约：2048 位密钥单块最多 245 字节
+            int maxLength = modulusByteLength(privateKey) - PKCS1_PADDING_OVERHEAD;
+            if (maxLength > 0 && plain.length > maxLength) {
+                throw new IllegalArgumentException(
+                        "RSA 单块加密最多支持 " + maxLength + " 字节，当前 " + plain.length + " 字节；请改用混合加密（RSA + AES）");
+            }
+
             // 加密数据
             Cipher cipher = Cipher.getInstance(TRANSFORMATION);
             cipher.init(Cipher.ENCRYPT_MODE, privateKey);
-            byte[] encryptedData = cipher.doFinal(data.getBytes(StandardCharsets.UTF_8));
+            byte[] encryptedData = cipher.doFinal(plain);
             
             // 返回Base64编码的加密数据
             return Base64.getEncoder().encodeToString(encryptedData);
             
+        } catch (IllegalArgumentException e) {
+            // 容量上限是调用方可以修正的错误，不应被包装成通用 RuntimeException
+            throw e;
         } catch (Exception e) {
             throw new RuntimeException("RSA encryption with private key failed", e);
         }
@@ -220,7 +259,7 @@ public class RsaEncryptUtils {
     public static String decryptWithPublicKey(String encryptedData, String publicKeyBase64) {
         try {
             // 解码公钥
-            byte[] keyBytes = Base64.getDecoder().decode(publicKeyBase64);
+            byte[] keyBytes = decodeKeyMaterial(publicKeyBase64);
             X509EncodedKeySpec keySpec = new X509EncodedKeySpec(keyBytes);
             KeyFactory keyFactory = KeyFactory.getInstance(RSA_ALGORITHM);
             PublicKey publicKey = keyFactory.generatePublic(keySpec);
@@ -251,7 +290,7 @@ public class RsaEncryptUtils {
      */
     public static String sign(String data, String privateKeyBase64) {
         try {
-            byte[] keyBytes = Base64.getDecoder().decode(privateKeyBase64);
+            byte[] keyBytes = decodeKeyMaterial(privateKeyBase64);
             PKCS8EncodedKeySpec keySpec = new PKCS8EncodedKeySpec(keyBytes);
             KeyFactory keyFactory = KeyFactory.getInstance(RSA_ALGORITHM);
             PrivateKey privateKey = keyFactory.generatePrivate(keySpec);
@@ -272,12 +311,16 @@ public class RsaEncryptUtils {
      * @param data 原始数据（UTF-8）
      * @param signatureBase64 Base64编码的签名
      * @param publicKeyBase64 Base64编码的RSA公钥
-     * @return 验证通过返回 true；签名不匹配、数据被篡改或签名格式非法均返回 false
+     * @return 验证通过返回 true；签名不匹配、数据被篡改、数据/签名为 null 或空、签名格式非法均返回 false
      * @throws RuntimeException 公钥无法解析时抛出异常
      */
     public static boolean verify(String data, String signatureBase64, String publicKeyBase64) {
+        // 缺失数据或签名 = 验证不通过，而不是让调用方收到 NPE/RuntimeException
+        if (data == null || signatureBase64 == null || signatureBase64.isEmpty()) {
+            return false;
+        }
         try {
-            byte[] keyBytes = Base64.getDecoder().decode(publicKeyBase64);
+            byte[] keyBytes = decodeKeyMaterial(publicKeyBase64);
             X509EncodedKeySpec keySpec = new X509EncodedKeySpec(keyBytes);
             KeyFactory keyFactory = KeyFactory.getInstance(RSA_ALGORITHM);
             PublicKey publicKey = keyFactory.generatePublic(keySpec);

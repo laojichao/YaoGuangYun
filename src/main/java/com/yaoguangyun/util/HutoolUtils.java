@@ -295,7 +295,10 @@ public class HutoolUtils {
      * @return 响应内容
      */
     public static String httpGet(String url) {
-        return HttpUtil.createGet(url).timeout(DEFAULT_HTTP_TIMEOUT).execute().body();
+        // HttpResponse 必须关闭：body() 只读取字节，不会释放底层连接
+        try (HttpResponse response = HttpUtil.createGet(url).timeout(DEFAULT_HTTP_TIMEOUT).execute()) {
+            return response.body();
+        }
     }
     
     /**
@@ -305,7 +308,9 @@ public class HutoolUtils {
      * @return 响应内容
      */
     public static String httpPost(String url, String data) {
-        return HttpUtil.createPost(url).timeout(DEFAULT_HTTP_TIMEOUT).body(data).execute().body();
+        try (HttpResponse response = HttpUtil.createPost(url).timeout(DEFAULT_HTTP_TIMEOUT).body(data).execute()) {
+            return response.body();
+        }
     }
     
     /**
@@ -315,7 +320,9 @@ public class HutoolUtils {
      * @return 响应内容
      */
     public static String httpPostForm(String url, Map<String, Object> params) {
-        return HttpUtil.createPost(url).timeout(DEFAULT_HTTP_TIMEOUT).form(params).execute().body();
+        try (HttpResponse response = HttpUtil.createPost(url).timeout(DEFAULT_HTTP_TIMEOUT).form(params).execute()) {
+            return response.body();
+        }
     }
     
     /**
@@ -325,7 +332,7 @@ public class HutoolUtils {
      * @param method 请求方法（大小写不敏感）
      * @param headers 请求头
      * @param body 请求体
-     * @return 响应对象
+     * @return 响应对象；<b>调用方必须 close()</b>，否则连接不会释放
      * @throws IllegalArgumentException method 不是合法的 HTTP 方法
      */
     public static HttpResponse httpRequest(String url, String method, Map<String, String> headers, String body) {
@@ -377,7 +384,12 @@ public class HutoolUtils {
      * @return 对象实例
      */
     public static <T> T fromJson(String json, Class<T> clazz) {
-        return JSONUtil.toBean(json, clazz);
+        try {
+            return JSONUtil.toBean(json, clazz);
+        } catch (RuntimeException e) {
+            System.err.println("JSON解析失败: " + e.getMessage());
+            return null;
+        }
     }
     
     /**
@@ -386,7 +398,12 @@ public class HutoolUtils {
      * @return Map对象
      */
     public static Map<String, Object> toMap(String json) {
-        return JSONUtil.toBean(json, Map.class);
+        try {
+            return JSONUtil.toBean(json, Map.class);
+        } catch (RuntimeException e) {
+            System.err.println("JSON解析失败: " + e.getMessage());
+            return null;
+        }
     }
     
     /**
@@ -395,7 +412,11 @@ public class HutoolUtils {
      * @return 格式化后的JSON
      */
     public static String formatJson(String json) {
-        return JSONUtil.formatJsonStr(json);
+        try {
+            return JSONUtil.formatJsonStr(json);
+        } catch (RuntimeException e) {
+            return json;
+        }
     }
     
     // ==================== 集合工具 ====================

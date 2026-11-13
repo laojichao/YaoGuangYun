@@ -21,7 +21,7 @@
 3. **设备信息管理**
    - 完整的设备信息收集
    - 支持设备信息伪装
-   - 包含 70+ 设备参数
+   - 包含 69 个设备参数
 
 4. **加密工具**
    - RSA 公钥加密/私钥解密（2048 位，单块上限 245 字节）
@@ -88,9 +88,13 @@ mvn exec:java -Dexec.mainClass="com.yaoguangyun.Main"
 # 运行功能自检（本地检查失败时以非0退出码结束）
 mvn exec:java -Dexec.mainClass="com.yaoguangyun.Main" -Dexec.args="test"
 
-# 启动本地测试服务器（仅监听回环地址）
+# 启动本地测试服务器（仅监听 127.0.0.1；默认端口取 server.http_port）
 mvn exec:java -Dexec.mainClass="com.yaoguangyun.Main" -Dexec.args="server"
 ```
+
+> 默认示例只访问本地测试服务器；外部 `hc.t60.top` / `httpbin.org` 探测需要
+> `-Dyaoguangyun.external=true`。构建需要 JDK 9+（`maven.compiler.release=8` 会按 Java 8 API 编译），
+> 运行可执行 jar 前先执行 `mvn package`，并保留同目录的 `target/lib`。
 
 ## 使用示例
 
@@ -224,9 +228,43 @@ mvn test
 java -jar target/YaoGuangYun-1.0.0.jar test
 ```
 
-`mvn test` 当前有 42 个用例，覆盖 RSA 加解密与签名、TCP 响应解码（含压缩炸弹防护）、
-HTTP 重定向语义、DNS 报文边界、Gson 严格校验、设备信息双视图一致性、配置解析容错、
-请求载荷 null 值过滤（设备字段/调用方数据中 null 直接省略，不会写出 JSON null）等。
+`mvn test` 当前有 68 个用例，覆盖 RSA 加解密/签名/PEM 密钥、TCP 响应解码（含压缩炸弹防护）、
+HTTP 编码解码与重定向安全（gzip/deflate、304、跨源敏感头剥离）、DNS 报文标志与 IDN、
+Gson 严格校验与精确数值转换、设备信息双视图一致性、配置解析容错与子 JVM 加载验证、
+枚举哨兵拒绝、请求载荷 null 值过滤等。
+
+## 第四轮契约变更
+
+- `HttpClient(int timeout)` 拒绝 <=0 的超时；`Content-Encoding: gzip/deflate` 自动解码，
+  未知编码抛 `IOException`；仅 301/302/303/307/308 跟随重定向，304 返回空流；
+  跨源重定向自动剥离 `Authorization`/`Cookie`/`Proxy-Authorization`。
+- `CardType`/`CardOperationType` 的 `UNRECOGNIZED` 哨兵不再可序列化或反序列化，
+  `setOp`/`setDataType` 会拒绝哨兵。
+- `CardProtobufMessage`/`DnsMessage` 的 Map 不接受 null 键/值；计数只统计非 null。
+- `RsaEncryptUtils.verify` 对 null 数据/签名返回 false；密钥支持 PEM 文本与换行。
+- `HttpsDnsClient` 非 200、响应超限、TC=1、RCODE 非 0 抛 `IOException`，
+  NXDOMAIN 抛 `UnknownHostException`；仅 NOERROR 且无 A 记录返回 null。
+- `HutoolUtils.fromJson/toMap` 对非法 JSON 返回 null；HTTP helper 内部关闭 `HttpResponse`。
+- `JsonConfigParser.getInt/getLong` 精确转换（溢出/小数回退默认值）；setter 拒绝 null/空键；
+  `merge` 为递归深合并。
+- `NetworkExample.run()` 与 `HutoolExample.runExamples()` 返回失败数，默认示例本地优先。
+
+## config.json 生效键
+
+实际驱动运行时的键：
+
+- `server.ip` / `server.tcp_port` / `server.http_port` / `server.timeout`
+- `network.connect_timeout` / `network.read_timeout` / `network.buffer_size` / `network.max_redirects`
+- `security.rsa_public_key`
+- `cache.enabled`
+
+保留键（当前没有消费方，仅作为兼容/未来扩展占位）：
+
+- `server.retry_count`
+- `device.*`
+- `cache.max_size` / `cache.expiration`
+- `logging.*`
+- `security.app_key`（仅通过 `ServerConfig.getAppKey()` 暴露）
 
 ## 注意事项
 

@@ -37,5 +37,11 @@ bin/
 .joy*/
 .cl*/
 
+### 运行产物 ###
+logs/
+*.log
+*.class
+hs_err_pid*.log
+
 ### Mac OS ###
 .DS_Store

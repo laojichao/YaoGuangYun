@@ -12,6 +12,8 @@ import com.yaoguangyun.util.GsonUtils;
 import java.io.*;
 import java.lang.reflect.Type;
 import java.nio.charset.StandardCharsets;
+import java.util.Collections;
+import java.util.LinkedHashSet;
 import java.util.Map;
 
 /**
@@ -114,7 +116,7 @@ public class JsonConfigParser {
             configData = JsonParser.parseString(jsonContent).getAsJsonObject();
             return true;
 
-        } catch (IOException | RuntimeException e) {
+        } catch (IOException | RuntimeException | StackOverflowError e) {
             System.err.println("解析配置文件失败: " + e);
             return false;
         }
@@ -178,8 +180,9 @@ public class JsonConfigParser {
             return defaultValue;
         }
         try {
-            return element.getAsInt();
-        } catch (NumberFormatException | UnsupportedOperationException e) {
+            // getAsInt 会静默截断小数/溢出（5000000000 -> 705032704）；必须精确转换
+            return element.getAsBigDecimal().intValueExact();
+        } catch (NumberFormatException | ArithmeticException | UnsupportedOperationException e) {
             System.err.println("[JsonConfigParser] 配置项 " + key + " 不是合法整数，使用默认值 " + defaultValue);
             return defaultValue;
         }
@@ -198,8 +201,8 @@ public class JsonConfigParser {
             return defaultValue;
         }
         try {
-            return element.getAsLong();
-        } catch (NumberFormatException | UnsupportedOperationException e) {
+            return element.getAsBigDecimal().longValueExact();
+        } catch (NumberFormatException | ArithmeticException | UnsupportedOperationException e) {
             System.err.println("[JsonConfigParser] 配置项 " + key + " 不是合法长整数，使用默认值 " + defaultValue);
             return defaultValue;
         }
@@ -218,7 +221,12 @@ public class JsonConfigParser {
             return defaultValue;
         }
         try {
-            return element.getAsDouble();
+            double value = element.getAsDouble();
+            if (!Double.isFinite(value)) {
+                System.err.println("[JsonConfigParser] 配置项 " + key + " 不是有限浮点数，使用默认值 " + defaultValue);
+                return defaultValue;
+            }
+            return value;
         } catch (NumberFormatException | UnsupportedOperationException e) {
             System.err.println("[JsonConfigParser] 配置项 " + key + " 不是合法浮点数，使用默认值 " + defaultValue);
             return defaultValue;
@@ -267,7 +275,10 @@ public class JsonConfigParser {
     
     /**
      * 获取嵌套配置对象
-     * 
+     *
+     * <p>返回的是内部活节点：直接修改它会绕过 {@code set*} 的键校验与冲突检查。
+     * 需要受控修改时请使用 setter。</p>
+     *
      * @param key 配置键
      * @return 配置对象
      */
@@ -283,7 +294,11 @@ public class JsonConfigParser {
      * @param value 配置值
      */
     public void setString(String key, String value) {
-        GsonUtils.putString(ensureParent(key), leafKey(key), value);
+        String normalized = requireKey(key);
+        if (value == null) {
+            throw new IllegalArgumentException("配置值不能为 null；删除请使用 removeKey");
+        }
+        GsonUtils.putString(ensureParent(normalized), leafKey(normalized), value);
     }
     
     /**
@@ -293,7 +308,8 @@ public class JsonConfigParser {
      * @param value 配置值
      */
     public void setInt(String key, int value) {
-        GsonUtils.putInt(ensureParent(key), leafKey(key), value);
+        String normalized = requireKey(key);
+        GsonUtils.putInt(ensureParent(normalized), leafKey(normalized), value);
     }
     
     /**
@@ -303,7 +319,8 @@ public class JsonConfigParser {
      * @param value 配置值
      */
     public void setLong(String key, long value) {
-        GsonUtils.putLong(ensureParent(key), leafKey(key), value);
+        String normalized = requireKey(key);
+        GsonUtils.putLong(ensureParent(normalized), leafKey(normalized), value);
     }
     
     /**
@@ -313,7 +330,8 @@ public class JsonConfigParser {
      * @param value 配置值
      */
     public void setDouble(String key, double value) {
-        GsonUtils.putDouble(ensureParent(key), leafKey(key), value);
+        String normalized = requireKey(key);
+        GsonUtils.putDouble(ensureParent(normalized), leafKey(normalized), value);
     }
     
     /**
@@ -323,7 +341,8 @@ public class JsonConfigParser {
      * @param value 配置值
      */
     public void setBoolean(String key, boolean value) {
-        GsonUtils.putBoolean(ensureParent(key), leafKey(key), value);
+        String normalized = requireKey(key);
+        GsonUtils.putBoolean(ensureParent(normalized), leafKey(normalized), value);
     }
     
     /**
@@ -394,15 +413,32 @@ public class JsonConfigParser {
         JsonObject current = configData;
         for (int i = 0; i < parts.length - 1; i++) {
             JsonElement next = current.get(parts[i]);
-            if (next == null || !next.isJsonObject()) {
+            if (next == null) {
                 JsonObject child = new JsonObject();
                 current.add(parts[i], child);
                 current = child;
+            } else if (!next.isJsonObject()) {
+                // 已有标量/数组不能静默被对象覆盖，否则原配置会悄悄丢失
+                throw new IllegalStateException("配置键冲突: " + key + " 的父节点 " + parts[i] + " 不是对象");
             } else {
                 current = next.getAsJsonObject();
             }
         }
         return current;
+    }
+
+    /**
+     * 校验并规范化配置键：拒绝 null/空白/空层级。
+     */
+    private static String requireKey(String key) {
+        if (key == null || key.trim().isEmpty()) {
+            throw new IllegalArgumentException("配置键不能为空");
+        }
+        String normalized = key.trim();
+        if (normalized.startsWith(".") || normalized.endsWith(".") || normalized.contains("..")) {
+            throw new IllegalArgumentException("配置键格式非法: " + key);
+        }
+        return normalized;
     }
 
     /**
@@ -425,12 +461,16 @@ public class JsonConfigParser {
      * @return 配置键集合
      */
     public java.util.Set<String> getKeys() {
-        return configData.keySet();
+        // 返回快照：调用方 clear() 不应直接清空配置，load() 后旧视图也不应继续“生效”
+        return Collections.unmodifiableSet(new LinkedHashSet<>(configData.keySet()));
     }
     
     /**
      * 获取配置数据映射
-     * 
+     *
+     * <p>数字会统一变成 {@link Double}（Gson 对 {@code Map<String,Object>} 的默认策略），
+     * 调用方不要直接强转 {@code Integer}。</p>
+     *
      * @return 配置数据映射
      */
     public Map<String, Object> toMap() {
@@ -447,8 +487,11 @@ public class JsonConfigParser {
         if (map == null) {
             return;
         }
-        
-        configData = gson.toJsonTree(map).getAsJsonObject();
+        try {
+            configData = gson.toJsonTree(map).getAsJsonObject();
+        } catch (RuntimeException | StackOverflowError e) {
+            System.err.println("从Map加载配置失败: " + e);
+        }
     }
     
     /**
@@ -460,10 +503,22 @@ public class JsonConfigParser {
         if (otherConfig == null) {
             return;
         }
-        
-        JsonObject otherData = otherConfig.configData;
-        for (String key : otherData.keySet()) {
-            configData.add(key, otherData.get(key));
+        deepMerge(configData, otherConfig.configData);
+    }
+
+    /**
+     * 递归深合并：对象逐层合并，数组/标量整体覆盖。
+     */
+    private static void deepMerge(JsonObject target, JsonObject source) {
+        for (Map.Entry<String, JsonElement> entry : source.entrySet()) {
+            String key = entry.getKey();
+            JsonElement incoming = entry.getValue();
+            JsonElement existing = target.get(key);
+            if (existing != null && existing.isJsonObject() && incoming.isJsonObject()) {
+                deepMerge(existing.getAsJsonObject(), incoming.getAsJsonObject());
+            } else {
+                target.add(key, incoming.deepCopy());
+            }
         }
     }
     
@@ -508,7 +563,7 @@ public class JsonConfigParser {
         try {
             configData = JsonParser.parseString(json).getAsJsonObject();
             return true;
-        } catch (Exception e) {
+        } catch (RuntimeException | StackOverflowError e) {
             System.err.println("解析JSON失败: " + e);
             return false;
         }
@@ -521,6 +576,10 @@ public class JsonConfigParser {
      * @return 是否创建成功
      */
     public static boolean createDefaultConfig(String configFilePath, JsonObject defaultConfig) {
+        if (defaultConfig == null) {
+            System.err.println("创建默认配置失败: defaultConfig 不能为 null");
+            return false;
+        }
         JsonConfigParser parser = new JsonConfigParser(configFilePath);
         parser.configData = defaultConfig;
         return parser.save();

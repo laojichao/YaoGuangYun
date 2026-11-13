@@ -95,6 +95,9 @@ public class GsonUtils {
         } catch (JsonParseException e) {
             System.err.println("JSON解析失败: " + e.getMessage());
             return null;
+        } catch (StackOverflowError e) {
+            System.err.println("JSON嵌套过深: " + e);
+            return null;
         }
     }
     
@@ -113,6 +116,9 @@ public class GsonUtils {
             return GSON.fromJson(json, type);
         } catch (JsonParseException e) {
             System.err.println("JSON解析失败: " + e.getMessage());
+            return null;
+        } catch (StackOverflowError e) {
+            System.err.println("JSON嵌套过深: " + e);
             return null;
         }
     }
@@ -134,6 +140,9 @@ public class GsonUtils {
         } catch (JsonParseException e) {
             System.err.println("JSON解析失败: " + e.getMessage());
             return null;
+        } catch (StackOverflowError e) {
+            System.err.println("JSON嵌套过深: " + e);
+            return null;
         }
     }
     
@@ -151,6 +160,9 @@ public class GsonUtils {
             return GSON.fromJson(json, type);
         } catch (JsonParseException e) {
             System.err.println("JSON解析失败: " + e.getMessage());
+            return null;
+        } catch (StackOverflowError e) {
+            System.err.println("JSON嵌套过深: " + e);
             return null;
         }
     }
@@ -173,6 +185,9 @@ public class GsonUtils {
         } catch (Exception e) {
             System.err.println("JSON解析失败: " + e.getMessage());
             return null;
+        } catch (StackOverflowError e) {
+            System.err.println("JSON嵌套过深: " + e);
+            return null;
         }
     }
     
@@ -189,6 +204,9 @@ public class GsonUtils {
             return JsonParser.parseString(json);
         } catch (Exception e) {
             System.err.println("JSON解析失败: " + e.getMessage());
+            return null;
+        } catch (StackOverflowError e) {
+            System.err.println("JSON嵌套过深: " + e);
             return null;
         }
     }
@@ -225,7 +243,8 @@ public class GsonUtils {
             return 0;
         }
         try {
-            return element.getAsInt();
+            // 精确转换：避免 1.9 -> 1、3000000000 -> 负数 这类静默错值
+            return element.getAsBigDecimal().intValueExact();
         } catch (Exception e) {
             return 0;
         }
@@ -246,7 +265,7 @@ public class GsonUtils {
             return 0L;
         }
         try {
-            return element.getAsLong();
+            return element.getAsBigDecimal().longValueExact();
         } catch (Exception e) {
             return 0L;
         }
@@ -293,7 +312,8 @@ public class GsonUtils {
             return 0.0;
         }
         try {
-            return element.getAsDouble();
+            double value = element.getAsDouble();
+            return Double.isFinite(value) ? value : 0.0;
         } catch (Exception e) {
             return 0.0;
         }
@@ -405,6 +425,9 @@ public class GsonUtils {
         } catch (Exception e) {
             System.err.println("对象转Map失败: " + e.getMessage());
             return null;
+        } catch (StackOverflowError e) {
+            System.err.println("对象嵌套过深: " + e);
+            return null;
         }
     }
     
@@ -425,6 +448,9 @@ public class GsonUtils {
         } catch (Exception e) {
             System.err.println("Map转对象失败: " + e.getMessage());
             return null;
+        } catch (StackOverflowError e) {
+            System.err.println("Map嵌套过深: " + e);
+            return null;
         }
     }
     
@@ -440,7 +466,7 @@ public class GsonUtils {
      * @return 是否为合法 JSON
      */
     public static boolean isValidJson(String json) {
-        if (json == null || json.isEmpty()) {
+        if (json == null || json.trim().isEmpty()) {
             return false;
         }
         JsonReader reader = new JsonReader(new StringReader(json));
@@ -450,6 +476,9 @@ public class GsonUtils {
             // 必须完整消费输入，拒绝 "{} 多余内容" 这类尾部垃圾
             return reader.peek() == JsonToken.END_DOCUMENT;
         } catch (Exception e) {
+            return false;
+        } catch (StackOverflowError e) {
+            System.err.println("JSON嵌套过深: " + e);
             return false;
         } finally {
             try {
@@ -473,6 +502,9 @@ public class GsonUtils {
             JsonElement element = JsonParser.parseString(json);
             return GSON_PRETTY.toJson(element);
         } catch (Exception e) {
+            return json;
+        } catch (StackOverflowError e) {
+            System.err.println("JSON嵌套过深: " + e);
             return json;
         }
     }

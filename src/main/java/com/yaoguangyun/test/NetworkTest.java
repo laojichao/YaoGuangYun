@@ -47,15 +47,19 @@ public class NetworkTest {
 
         System.out.println("=== 网络功能测试 ===\n");
 
-        testRsaEncryption();
-        testDeviceInfo();
-        testLocalHttpServer();
-        testGson();
-        testTcpClient();
-        testExternalHttp();
-
-        System.out.println("\n=== 测试完成: " + (checks - failures) + "/" + checks + " 通过，失败 " + failures + " 项 ===");
-        TcpClient.shutdown();
+        try {
+            runSection("RSA", NetworkTest::testRsaEncryption);
+            runSection("设备信息", NetworkTest::testDeviceInfo);
+            runSection("本地HTTP", NetworkTest::testLocalHttpServer);
+            runSection("Gson", NetworkTest::testGson);
+            runSection("TCP客户端", NetworkTest::testTcpClient);
+            runSection("外部HTTP", NetworkTest::testExternalHttp);
+        } finally {
+            // 无论某个段落是否抛异常，都要打印汇总并释放线程池
+            System.out.println("\n=== 测试完成: " + (checks - failures) + "/" + checks
+                    + " 通过，失败 " + failures + " 项 ===");
+            TcpClient.shutdown();
+        }
         return failures;
     }
 
@@ -66,6 +70,19 @@ public class NetworkTest {
     /**
      * 断言辅助方法
      */
+    /**
+     * 运行一个测试段落；异常计为一项失败，但不会中断后续段落。
+     */
+    private static void runSection(String name, Runnable section) {
+        try {
+            section.run();
+        } catch (Throwable t) {
+            failures++;
+            checks++;
+            System.err.println("  ✗ " + name + " 段落异常: " + describe(t));
+        }
+    }
+
     private static void check(String name, boolean condition) {
         checks++;
         if (condition) {
@@ -233,6 +250,11 @@ public class NetworkTest {
     private static void testTcpClient() {
         System.out.println("5. 测试TCP客户端（外部服务器，仅供参考）");
         System.out.println("--------------------------------------");
+        if (!Boolean.getBoolean("yaoguangyun.external")) {
+            System.out.println("  已跳过（需要 -Dyaoguangyun.external=true）");
+            System.out.println();
+            return;
+        }
 
         System.out.println("  服务器配置: " + ServerConfig.getServerIp()
                 + " TCP=" + ServerConfig.getTcpPort()
@@ -278,6 +300,11 @@ public class NetworkTest {
     private static void testExternalHttp() {
         System.out.println("6. 外部HTTP探测（仅供参考）");
         System.out.println("--------------------------");
+        if (!Boolean.getBoolean("yaoguangyun.external")) {
+            System.out.println("  已跳过（需要 -Dyaoguangyun.external=true）");
+            System.out.println();
+            return;
+        }
 
         String url = "http://httpbin.org/get";
         System.out.println("  GET " + url);
